@@ -27,8 +27,10 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN in the server .env file}
       OFFLINE_MODE: ${OFFLINE_MODE:-0}
     networks:
-      - private
-      - proxy
+      private: {}
+      proxy:
+        aliases:
+          - techwatch-api
     depends_on:
       db:
         condition: service_healthy
