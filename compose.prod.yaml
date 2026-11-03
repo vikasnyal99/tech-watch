@@ -39,6 +39,7 @@ services:
       retries: 6
 
   worker:
+    build: .
     image: techwatch-app:local
     command: ["python", "-m", "backend.worker"]
     restart: unless-stopped
