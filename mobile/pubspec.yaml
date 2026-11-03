@@ -62,6 +62,8 @@ flutter:
   assets:
     - assets/branding/techwatch-lockup.png
     - assets/branding/techwatch-monogram.png
+    - assets/brands/
+    - assets/images/onboarding-briefings.webp
 
   # To add assets to your application, add an assets section, like this:
   # assets:

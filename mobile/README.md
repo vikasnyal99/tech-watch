@@ -15,7 +15,7 @@ flutter build apk --release --flavor preview --dart-define=API_BASE_URL=http://6
 flutter build appbundle --release --flavor preview --dart-define=API_BASE_URL=http://65.1.226.15
 ```
 
-The preview package ID is `com.zivantaai.techwatch.preview`. This variant alone permits cleartext traffic to the temporary IP. The APK is for direct installation and the AAB is for Play internal testing once a Play Console account exists.
+The preview package ID is `com.zivantaai.techwatch.preview`. This variant alone permits cleartext traffic to the temporary IP. Install the APK directly for testing. The preview AAB demonstrates a signed bundle build; keep it out of the public Play listing.
 
 After DNS and HTTPS are active, build the production package ID `com.zivantaai.techwatch`:
 

@@ -198,6 +198,34 @@ IconData iconFor(String label) {
   return Icons.layers_outlined;
 }
 
+Widget techMark(String label, {double size = 25}) {
+  const brands = <String, String>{
+    'python': 'python',
+    'typescript': 'typescript',
+    'php': 'php',
+    'kubernetes': 'kubernetes',
+    'aws': 'aws',
+    'openai': 'openai',
+    'anthropic': 'anthropic',
+    'react': 'react',
+    'node.js': 'nodedotjs',
+    'postgresql': 'postgresql',
+    'redis': 'redis',
+    'grafana': 'grafana',
+  };
+  final brand = brands[label.toLowerCase()];
+  if (brand != null) {
+    return Image.asset(
+      'assets/brands/$brand.png',
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      semanticLabel: label,
+    );
+  }
+  return Icon(iconFor(label), color: clay, size: size);
+}
+
 class ChoiceTile extends StatelessWidget {
   const ChoiceTile({
     super.key,
@@ -229,7 +257,7 @@ class ChoiceTile extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(iconFor(label), color: clay, size: 25),
+              techMark(label),
               Icon(
                 selected ? Icons.check_circle : Icons.circle_outlined,
                 color: selected ? clay : muted,
@@ -392,9 +420,14 @@ class _OnboardingState extends State<Onboarding> {
                           style: TextStyle(height: 1.55, fontSize: 13),
                         ),
                       ),
-                      Image.asset(
-                        'assets/branding/techwatch-monogram.png',
-                        width: 88,
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.asset(
+                          'assets/images/onboarding-briefings.webp',
+                          width: 86,
+                          height: 83,
+                          fit: BoxFit.cover,
+                        ),
                       ),
                     ],
                   ),
@@ -791,15 +824,18 @@ class _HomeState extends State<Home> {
         ),
         IconButton(
           tooltip: 'Settings',
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => Settings(
-                api: widget.api,
-                prefs: widget.prefs,
-                onReset: widget.onReset,
-              ),
-            ),
-          ),
+          onPressed: () => Navigator.of(context)
+              .push(
+                MaterialPageRoute(
+                  builder: (_) => Settings(
+                    api: widget.api,
+                    prefs: widget.prefs,
+                    catalog: widget.catalog,
+                    onReset: widget.onReset,
+                  ),
+                ),
+              )
+              .then((_) => refresh()),
           icon: const Icon(Icons.account_circle_outlined),
         ),
       ],
@@ -1017,10 +1053,8 @@ class _HomeState extends State<Home> {
               color: soft,
               borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(
-              iconFor(item['technology']?.toString() ?? ''),
-              color: clay,
-              size: 32,
+            child: Center(
+              child: techMark(item['technology']?.toString() ?? '', size: 34),
             ),
           ),
           const SizedBox(width: 12),
@@ -1086,10 +1120,11 @@ class _HomeState extends State<Home> {
                 builder: (_) => Settings(
                   api: widget.api,
                   prefs: widget.prefs,
+                  catalog: widget.catalog,
                   onReset: widget.onReset,
                 ),
               ),
-            ),
+            ).then((_) => refresh()),
             icon: const Icon(Icons.account_circle_outlined),
           ),
         ],
@@ -1297,10 +1332,12 @@ class BriefCard extends StatelessWidget {
                     right: 20,
                     top: 0,
                     bottom: 0,
-                    child: Icon(
-                      iconFor(item['technology']?.toString() ?? ''),
-                      size: compact ? 63 : 95,
-                      color: const Color(0x40B74420),
+                    child: Opacity(
+                      opacity: .3,
+                      child: techMark(
+                        item['technology']?.toString() ?? '',
+                        size: compact ? 63 : 95,
+                      ),
                     ),
                   ),
                   Positioned(
@@ -1465,10 +1502,12 @@ class Settings extends StatefulWidget {
     super.key,
     required this.api,
     required this.prefs,
+    required this.catalog,
     required this.onReset,
   });
   final TechWatchApi api;
   final Map<String, dynamic> prefs;
+  final Map<String, dynamic> catalog;
   final VoidCallback onReset;
   @override
   State<Settings> createState() => _SettingsState();
@@ -1542,6 +1581,20 @@ class _SettingsState extends State<Settings> {
           subtitle: Text(
             '${strings(widget.prefs['follows']).length} technologies followed',
           ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () async {
+            final updated = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => StackEditor(
+                  api: widget.api,
+                  prefs: widget.prefs,
+                  catalog: widget.catalog,
+                ),
+              ),
+            );
+            if (updated == true && mounted) setState(() {});
+          },
         ),
         ListTile(
           leading: const Icon(Icons.notifications_none, color: clay),
@@ -1586,6 +1639,121 @@ class _SettingsState extends State<Settings> {
       ],
     ),
   );
+}
+
+class StackEditor extends StatefulWidget {
+  const StackEditor({
+    super.key,
+    required this.api,
+    required this.prefs,
+    required this.catalog,
+  });
+  final TechWatchApi api;
+  final Map<String, dynamic> prefs, catalog;
+  @override
+  State<StackEditor> createState() => _StackEditorState();
+}
+
+class _StackEditorState extends State<StackEditor> {
+  late final selected = strings(widget.prefs['follows']).toSet();
+  String search = '';
+  bool saving = false;
+  Future<void> save() async {
+    if (saving) return;
+    setState(() => saving = true);
+    try {
+      final update = <String, dynamic>{
+        ...widget.prefs,
+        'follows': selected.toList(),
+      };
+      final value = Map<String, dynamic>.from(
+        await widget.api.request('/v1/preferences', method: 'PUT', body: update)
+            as Map,
+      );
+      await widget.api.storage.setString('preferences', jsonEncode(value));
+      widget.prefs.addAll(value);
+      if (mounted) Navigator.pop(context, true);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save your stack. Try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final options = strings(widget.catalog['technologies'])
+        .where((item) => item.toLowerCase().contains(search.toLowerCase()))
+        .toList();
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Follow your stack',
+          style: TextStyle(fontFamily: 'serif', fontSize: 24),
+        ),
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Select the technologies you use or evaluate.',
+                style: TextStyle(color: muted),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                onChanged: (value) => setState(() => search = value),
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search),
+                  hintText: 'Search technologies',
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: GridView.builder(
+                  itemCount: options.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 9,
+                    mainAxisSpacing: 9,
+                    childAspectRatio: 1.65,
+                  ),
+                  itemBuilder: (_, i) => ChoiceTile(
+                    label: options[i],
+                    selected: selected.contains(options[i]),
+                    tap: () => setState(
+                      () => selected.contains(options[i])
+                          ? selected.remove(options[i])
+                          : selected.add(options[i]),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              ActionButton(
+                'Save ${selected.length} technologies',
+                saving ? null : save,
+                icon: Icons.check,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class SourceHealth extends StatefulWidget {
@@ -1655,10 +1823,7 @@ class _SourceHealthState extends State<SourceHealth> {
                 ),
                 for (final source in sources)
                   ListTile(
-                    leading: Icon(
-                      iconFor(source['technology']?.toString() ?? ''),
-                      color: clay,
-                    ),
+                    leading: techMark(source['technology']?.toString() ?? ''),
                     title: Text(source['technology']?.toString() ?? 'Source'),
                     subtitle: Text(
                       source['url']?.toString() ?? '',
