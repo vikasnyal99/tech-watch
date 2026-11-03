@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up TechWatch PostgreSQL to S3
+Wants=network-online.target
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/techwatch/deploy/backup.sh

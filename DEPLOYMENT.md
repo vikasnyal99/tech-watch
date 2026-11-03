@@ -58,3 +58,8 @@ that would delete the PostgreSQL volume.
 
 Back up PostgreSQL off the instance and test a restore before relying on any
 user data. This public preview has guest preferences rather than user accounts.
+The server installs `deploy/techwatch-backup.timer`, which runs a daily
+`pg_dump` to the existing private S3 deployment bucket under
+`techwatch/backups/`. Backups in that prefix expire after 30 days. Check
+`systemctl status techwatch-backup.timer` and periodically restore a dump to
+a disposable database to verify it.
