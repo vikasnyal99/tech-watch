@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 310" role="img" aria-label="Editorial illustration of connected technology updates">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#fffdf9"/><stop offset="1" stop-color="#f3e9dd"/></linearGradient>
+    <linearGradient id="rust" x2="1" y2="1"><stop stop-color="#d36b43"/><stop offset="1" stop-color="#ab3b20"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#6f4530" flood-opacity=".15"/></filter>
+    <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#d9cbbb" stroke-width=".6"/></pattern>
+  </defs>
+  <rect width="760" height="310" fill="url(#bg)"/>
+  <rect width="760" height="310" fill="url(#grid)" opacity=".7"/>
+  <path d="M136 157h160M460 157h159M376 87v-24M376 251v-24" stroke="#c77a55" stroke-width="2" stroke-dasharray="5 5"/>
+  <g filter="url(#shadow)">
+    <rect x="292" y="68" width="168" height="178" rx="22" fill="#fffdf9" stroke="#e2d3c4"/>
+    <rect x="314" y="90" width="124" height="18" rx="9" fill="url(#rust)"/>
+    <rect x="314" y="128" width="86" height="8" rx="4" fill="#d6c3b3"/>
+    <rect x="314" y="148" width="122" height="8" rx="4" fill="#e5d8cc"/>
+    <rect x="314" y="168" width="103" height="8" rx="4" fill="#e5d8cc"/>
+    <rect x="314" y="199" width="75" height="25" rx="12" fill="#f7e5d8"/>
+    <circle cx="424" cy="211" r="13" fill="url(#rust)"/>
+    <path d="m418 211 4 4 8-9" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g fill="#fffdf9" stroke="#c7aa96" filter="url(#shadow)">
+    <rect x="74" y="102" width="120" height="100" rx="17"/>
+    <rect x="566" y="102" width="120" height="100" rx="17"/>
+    <rect x="326" y="17" width="100" height="51" rx="14"/>
+    <rect x="326" y="246" width="100" height="51" rx="14"/>
+  </g>
+  <g fill="none" stroke="#b84b2c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M111 130h47v12h-47zM111 160h47v12h-47zM119 142v18m31-18v18"/>
+    <path d="m607 129 34 18-34 18-34-18zM573 147v24l34 18 34-18v-24M607 165v24"/>
+    <path d="M351 44h50m-25-11v22"/>
+    <path d="m352 271 15 13 35-22"/>
+  </g>
+  <g fill="#c04f2d"><circle cx="221" cy="157" r="5"/><circle cx="536" cy="157" r="5"/><circle cx="376" cy="53" r="5"/><circle cx="376" cy="257" r="5"/></g>
+</svg>

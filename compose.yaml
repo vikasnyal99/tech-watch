@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: techwire
+      POSTGRES_USER: techwire
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U techwire"]
+      interval: 5s
+      retries: 10
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://techwire:${POSTGRES_PASSWORD:-local-development-only}@db:5432/techwire
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      OFFLINE_MODE: ${OFFLINE_MODE:-0}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      retries: 10
+  worker:
+    build: .
+    command: ["python", "-m", "backend.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://techwire:${POSTGRES_PASSWORD:-local-development-only}@db:5432/techwire
+      OFFLINE_MODE: ${OFFLINE_MODE:-0}
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  pgdata:

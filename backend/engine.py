@@ -1,0 +1,496 @@
+"""Recorded-source pipeline and durable PostgreSQL job processing for the first Python slice."""
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from pathlib import Path
+from uuid import uuid4
+import json
+import os
+import re
+
+from sqlalchemy import text
+from backend.db import Session, engine
+from backend.briefing_copy import validate_briefing_copy
+from backend.fetcher import fetch_html
+from backend.python_source import discover_releases, parse_release
+from backend.rss_source import SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, parse_feed
+
+FIXTURE_DIR = Path(__file__).parents[1] / 'fixtures' / 'python_source'
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+def later(seconds: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(timespec='seconds')
+
+
+def uid() -> str:
+    return uuid4().hex
+
+
+def rows(result):
+    return [dict(row) for row in result.mappings()]
+
+
+def seed_source(source_id='python-downloads', adapter='python_downloads', enabled=False):
+    stamp = now()
+    with Session.begin() as db:
+        db.execute(text('INSERT INTO technology_sources (id,technology,url,adapter,enabled,interval_seconds,next_due_at,created_at,updated_at) '
+                        'VALUES (:id,:technology,:url,:adapter,:enabled,:interval,:due,:stamp,:stamp) ON CONFLICT(id) DO NOTHING'),
+                   {'id': source_id, 'technology': 'Python', 'url': 'https://www.python.org/downloads/',
+                    'adapter': adapter, 'enabled': int(enabled), 'interval': 21600, 'due': stamp,
+                    'stamp': stamp})
+
+
+def seed_rss_sources():
+    stamp = now()
+    with Session.begin() as db:
+        for source_id, technology, url, _topic in SOURCES:
+            db.execute(text('INSERT INTO technology_sources (id,technology,url,adapter,enabled,interval_seconds,next_due_at,created_at,updated_at) '
+                            'VALUES (:id,:technology,:url,:adapter,:enabled,3600,:due,:stamp,:stamp) ON CONFLICT(id) DO NOTHING'),
+                       {'id': source_id, 'technology': technology, 'url': url, 'adapter': 'rss',
+                        'enabled': int(source_id not in DISABLED_BY_DEFAULT), 'due': stamp, 'stamp': stamp})
+
+
+def enqueue(db, kind: str, payload: dict, key: str):
+    ident, stamp = uid(), now()
+    db.execute(text('INSERT INTO processing_jobs (id,kind,payload,status,attempts,max_attempts,available_at,idempotency_key,created_at,updated_at) '
+                    'VALUES (:id,:kind,:payload,:status,0,3,:stamp,:key,:stamp,:stamp) ON CONFLICT(idempotency_key) DO NOTHING'),
+               {'id': ident, 'kind': kind, 'payload': json.dumps(payload), 'status': 'pending', 'stamp': stamp, 'key': key})
+    return db.execute(text('SELECT id FROM processing_jobs WHERE idempotency_key=:key'), {'key': key}).scalar_one()
+
+
+def schedule_due():
+    stamp = now()
+    with Session.begin() as db:
+        sql = 'SELECT * FROM technology_sources WHERE enabled=1 AND (next_due_at IS NULL OR next_due_at<=:stamp) ORDER BY id'
+        if engine.dialect.name == 'postgresql':
+            sql += ' FOR UPDATE SKIP LOCKED'
+        due = rows(db.execute(text(sql), {'stamp': stamp}))
+        for source in due:
+            enqueue(db, 'fetch-index', {'source_id': source['id']}, f"poll:{source['id']}:{source['next_due_at'] or 'initial'}")
+            db.execute(text('UPDATE technology_sources SET next_due_at=:due,updated_at=:stamp WHERE id=:id'),
+                       {'due': later(source['interval_seconds']), 'stamp': stamp, 'id': source['id']})
+    return len(due)
+
+
+def manual_recheck(source_id: str):
+    with Session.begin() as db:
+        if not db.execute(text('SELECT id FROM technology_sources WHERE id=:id'), {'id': source_id}).first():
+            raise ValueError('unknown source')
+        return enqueue(db, 'fetch-index', {'source_id': source_id}, f'manual:{source_id}:{uid()}')
+
+
+def claim_job():
+    stamp = now()
+    with Session.begin() as db:
+        db.execute(text("UPDATE processing_jobs SET status='failed',last_error='Lease expired after final attempt',updated_at=:stamp "
+                        "WHERE status='processing' AND lease_until<=:stamp AND attempts>=max_attempts"), {'stamp': stamp})
+        sql = "SELECT * FROM processing_jobs WHERE ((status='pending' AND available_at<=:stamp) OR (status='processing' AND lease_until<=:stamp)) AND attempts<max_attempts ORDER BY available_at,id LIMIT 1"
+        if engine.dialect.name == 'postgresql':
+            sql += ' FOR UPDATE SKIP LOCKED'
+        job = db.execute(text(sql), {'stamp': stamp}).mappings().first()
+        if not job:
+            return None
+        item = dict(job)
+        db.execute(text("UPDATE processing_jobs SET status='processing',attempts=attempts+1,lease_until=:lease,updated_at=:stamp WHERE id=:id"),
+                   {'lease': later(120), 'stamp': stamp, 'id': item['id']})
+        item['attempts'] += 1
+        item['payload'] = json.loads(item['payload'])
+        return item
+
+
+def finish_job(job_id: str):
+    with Session.begin() as db:
+        db.execute(text("UPDATE processing_jobs SET status='succeeded',lease_until=NULL,updated_at=:stamp WHERE id=:id"), {'stamp': now(), 'id': job_id})
+
+
+def fail_job(job: dict, error: Exception):
+    terminal = job['attempts'] >= job['max_attempts']
+    with Session.begin() as db:
+        db.execute(text('UPDATE processing_jobs SET status=:status,available_at=:due,lease_until=NULL,last_error=:error,updated_at=:stamp WHERE id=:id'),
+                   {'status': 'failed' if terminal else 'pending', 'due': later(min(30 * 2 ** job['attempts'], 3600)),
+                    'error': f'{type(error).__name__}: {str(error)[:300]}', 'stamp': now(), 'id': job['id']})
+        source_id = job['payload'].get('source_id')
+        if source_id and job['kind'] in ('fetch-index', 'fetch-release'):
+            message = f'{type(error).__name__}: {str(error)[:300]}'
+            db.execute(text('UPDATE technology_sources SET last_error=:error,updated_at=:stamp WHERE id=:id'),
+                       {'error': message, 'stamp': now(), 'id': source_id})
+            url = job['payload'].get('url') or db.execute(text('SELECT url FROM technology_sources WHERE id=:id'),
+                                                           {'id': source_id}).scalar_one()
+            record_fetch(db, source_id, url, None, None, error=message)
+
+
+def source_record(source_id: str):
+    with Session() as db:
+        row = db.execute(text('SELECT * FROM technology_sources WHERE id=:id'), {'id': source_id}).mappings().first()
+        if not row:
+            raise ValueError('unknown source')
+        return dict(row)
+
+
+def source_health():
+    with Session() as db:
+        data = rows(db.execute(text('SELECT s.id,s.technology,s.url,s.adapter,s.enabled,s.interval_seconds,s.next_due_at,s.last_error,s.updated_at, '
+                                    '(SELECT MAX(f.fetched_at) FROM source_fetches f WHERE f.source_id=s.id) last_attempt_at, '
+                                    '(SELECT MAX(f.fetched_at) FROM source_fetches f WHERE f.source_id=s.id AND f.status_code IN (200,304)) last_success_at '
+                                    'FROM technology_sources s ORDER BY s.id')))
+    stamp = datetime.now(timezone.utc)
+    for source in data:
+        if not source['enabled']:
+            status = 'disabled'
+        elif os.getenv('OFFLINE_MODE') == '1':
+            status = 'paused'
+        elif source['last_error']:
+            status = 'error'
+        elif not source['last_success_at']:
+            status = 'pending'
+        elif stamp - datetime.fromisoformat(source['last_success_at']) > timedelta(seconds=source['interval_seconds'] * 2 + 300):
+            status = 'stale'
+        else:
+            status = 'healthy'
+        source['status'] = status
+    return data
+
+
+def configure_source(source_id: str, *, enabled: bool | None = None, interval_seconds: int | None = None):
+    if interval_seconds is not None and not 300 <= interval_seconds <= 604800:
+        raise ValueError('interval must be between 300 and 604800 seconds')
+    with Session.begin() as db:
+        if not db.execute(text('SELECT id FROM technology_sources WHERE id=:id'), {'id': source_id}).first():
+            raise ValueError('unknown source')
+        if enabled is not None:
+            db.execute(text('UPDATE technology_sources SET enabled=:enabled,next_due_at=:due,updated_at=:stamp WHERE id=:id'),
+                       {'enabled': int(enabled), 'due': now(), 'stamp': now(), 'id': source_id})
+        if interval_seconds is not None:
+            db.execute(text('UPDATE technology_sources SET interval_seconds=:interval,updated_at=:stamp WHERE id=:id'),
+                       {'interval': interval_seconds, 'stamp': now(), 'id': source_id})
+    return source_record(source_id)
+
+
+def get_html(source: dict, url: str, *, index=False):
+    if source['adapter'] == 'fixture_python':
+        path = FIXTURE_DIR / ('downloads.html' if index else 'release.html')
+        return path.read_text(), 200, None, None
+    if os.getenv('OFFLINE_MODE') == '1':
+        raise RuntimeError('live source fetching is disabled in offline mode')
+    if source['adapter'] not in ('python_downloads', 'rss'):
+        raise ValueError('unsupported source adapter')
+    result = fetch_html(url, etag=source['etag'] if index else None,
+                        last_modified=source['last_modified'] if index else None)
+    return result.body, result.status_code, result.etag, result.last_modified
+
+
+def record_fetch(db, source_id: str, url: str, status: int | None, digest: str | None,
+                 error: str | None = None, body: str | None = None):
+    db.execute(text('INSERT INTO source_fetches (id,source_id,url,status_code,content_hash,fetched_at,error,body_text) '
+                    'VALUES (:id,:source,:url,:status,:digest,:stamp,:error,:body)'),
+               {'id': uid(), 'source': source_id, 'url': url, 'status': status,
+                'digest': digest, 'stamp': now(), 'error': error, 'body': body})
+
+
+def process_index(job: dict):
+    source = source_record(job['payload']['source_id'])
+    if source['adapter'] == 'rss':
+        return process_rss_index(job, source)
+    body, status, etag, modified = get_html(source, source['url'], index=True)
+    if status == 304:
+        with Session.begin() as db:
+            record_fetch(db, source['id'], source['url'], 304, source['last_hash'])
+            db.execute(text('UPDATE technology_sources SET last_error=NULL,updated_at=:stamp WHERE id=:id'),
+                       {'stamp': now(), 'id': source['id']})
+            # The index can stay unchanged while existing release notes are revised.
+            known = db.execute(text('SELECT version,canonical_url FROM technology_releases '
+                                    'WHERE source_id=:source ORDER BY published_at DESC LIMIT 5'),
+                               {'source': source['id']}).mappings().all()
+            for release in known:
+                enqueue(db, 'fetch-release', {'source_id': source['id'], 'version': release['version'],
+                                              'url': release['canonical_url']},
+                        f"release:{source['id']}:{release['version']}:{job['id']}")
+        return
+    if not body:
+        raise ValueError('empty downloads page')
+    digest = sha256(body.encode()).hexdigest()
+    links = discover_releases(body, source['url'])
+    if not links:
+        raise ValueError('no Python release links found; source structure may have changed')
+    with Session.begin() as db:
+        record_fetch(db, source['id'], source['url'], status, digest, body=body)
+        db.execute(text('UPDATE technology_sources SET etag=:etag,last_modified=:modified,last_hash=:digest,last_error=NULL,updated_at=:stamp WHERE id=:id'),
+                   {'etag': etag, 'modified': modified, 'digest': digest, 'stamp': now(), 'id': source['id']})
+        for link in links:
+            enqueue(db, 'fetch-release', {'source_id': source['id'], 'version': link.version, 'url': link.url},
+                    f"release:{source['id']}:{link.version}:{job['id']}")
+
+
+def process_rss_index(job: dict, source: dict):
+    body, status, etag, modified = get_html(source, source['url'], index=True)
+    if status == 304:
+        with Session.begin() as db:
+            record_fetch(db, source['id'], source['url'], 304, source['last_hash'])
+            db.execute(text('UPDATE technology_sources SET last_error=NULL,updated_at=:stamp WHERE id=:id'),
+                       {'stamp': now(), 'id': source['id']})
+        return
+    if not body or status != 200:
+        raise ValueError('RSS source unavailable')
+    digest = sha256(body.encode()).hexdigest()
+    stamp = now()
+    if digest == source['last_hash']:
+        with Session.begin() as db:
+            record_fetch(db, source['id'], source['url'], status, digest)
+            db.execute(text('UPDATE technology_sources SET etag=:etag,last_modified=:modified,last_error=NULL,updated_at=:stamp WHERE id=:id'),
+                       {'etag': etag, 'modified': modified, 'stamp': stamp, 'id': source['id']})
+        return
+    entries = parse_feed(body, source['url'], allowed_hosts=ENTRY_HOSTS.get(source['id']))
+    with Session.begin() as db:
+        record_fetch(db, source['id'], source['url'], status, digest, body=body)
+        db.execute(text('UPDATE technology_sources SET etag=:etag,last_modified=:modified,last_hash=:digest,last_error=NULL,updated_at=:stamp WHERE id=:id'),
+                   {'etag': etag, 'modified': modified, 'digest': digest, 'stamp': stamp, 'id': source['id']})
+        for entry in entries:
+            existing = db.execute(text('SELECT * FROM technology_releases WHERE canonical_url=:url'),
+                                  {'url': entry.url}).mappings().first()
+            entry_hash = sha256((entry.title + '\n' + entry.excerpt).encode()).hexdigest()
+            if existing and existing['latest_hash'] == entry_hash:
+                continue
+            if not existing:
+                # A second official feed can syndicate the same story under a different URL.
+                normalized = re.sub(r'[^a-z0-9]+', ' ', entry.title.casefold()).strip()
+                candidate = db.execute(text("SELECT r.id,v.raw_text FROM technology_releases r JOIN release_revisions v ON v.release_id=r.id "
+                                            "WHERE r.published_at=:published AND r.version LIKE 'rss-%'"),
+                                       {'published': entry.published_at}).mappings().all()
+                if any(re.sub(r'[^a-z0-9]+', ' ', x['raw_text'].split('\n', 1)[0].casefold()).strip() == normalized for x in candidate):
+                    continue
+                release_id = uid()
+                db.execute(text('INSERT INTO technology_releases (id,technology,version,source_id,canonical_url,release_type,published_at,latest_hash,created_at,updated_at) '
+                                'VALUES (:id,:technology,:version,:source,:url,:kind,:published,:digest,:stamp,:stamp)'),
+                           {'id': release_id, 'technology': source['technology'], 'version': f'rss-{entry.key}',
+                            'source': source['id'], 'url': entry.url, 'kind': entry.kind,
+                            'published': entry.published_at, 'digest': entry_hash, 'stamp': stamp})
+            else:
+                release_id = existing['id']
+                db.execute(text('UPDATE technology_releases SET latest_hash=:digest,release_type=:kind,published_at=:published,updated_at=:stamp WHERE id=:id'),
+                           {'digest': entry_hash, 'kind': entry.kind, 'published': entry.published_at,
+                            'stamp': stamp, 'id': release_id})
+            revision_id = uid()
+            db.execute(text('INSERT INTO release_revisions (id,release_id,content_hash,raw_text,created_at) '
+                            'VALUES (:id,:release,:digest,:raw,:stamp)'),
+                       {'id': revision_id, 'release': release_id, 'digest': entry_hash,
+                        'raw': entry.title + '\n' + entry.excerpt, 'stamp': stamp})
+            db.execute(text('INSERT INTO release_facts (id,revision_id,kind,description,evidence_excerpt,evidence_url,confidence) '
+                            'VALUES (:id,:revision,:kind,:description,:excerpt,:url,:confidence)'),
+                       {'id': uid(), 'revision': revision_id, 'kind': entry.kind, 'description': entry.excerpt,
+                        'excerpt': entry.excerpt, 'url': entry.url, 'confidence': 'official_feed_excerpt'})
+            enqueue(db, 'generate-rss-brief', {'revision_id': revision_id, 'source_id': source['id'],
+                                                'title': entry.title, 'score': entry.score}, f'rss-brief:{revision_id}')
+
+
+def process_rss_brief(job: dict):
+    payload = job['payload']
+    with Session.begin() as db:
+        row = db.execute(text('SELECT r.release_id,v.technology,v.canonical_url,f.description FROM release_revisions r '
+                              'JOIN technology_releases v ON v.id=r.release_id JOIN release_facts f ON f.revision_id=r.id '
+                              'WHERE r.id=:id LIMIT 1'), {'id': payload['revision_id']}).mappings().one()
+        if db.execute(text('SELECT id FROM tech_briefs WHERE revision_id=:id'), {'id': payload['revision_id']}).first():
+            return
+        copy = {'title': payload['title'], 'summary': first_sentence(row['description']),
+                'why_it_matters': f"Official {row['technology']} update; review its relevance to your work.",
+                'next_action': 'Read the official source for details.'}
+        status = 'needs_edit' if validate_briefing_copy(copy) else 'review_required'
+        db.execute(text('INSERT INTO tech_briefs (id,release_id,revision_id,title,summary,why_it_matters,next_action,score,status,fictional,source_label,source_url,created_at,updated_at) '
+                        'VALUES (:id,:release,:revision,:title,:summary,:why,:action,:score,:status,0,:label,:url,:stamp,:stamp)'),
+                   {'id': uid(), 'release': row['release_id'], 'revision': payload['revision_id'],
+                    'title': copy['title'], 'summary': copy['summary'], 'why': copy['why_it_matters'],
+                    'action': copy['next_action'], 'score': payload['score'], 'status': status,
+                    'label': f"{row['technology']} official feed", 'url': row['canonical_url'], 'stamp': now()})
+
+
+def process_release(job: dict):
+    source = source_record(job['payload']['source_id'])
+    url = job['payload']['url']
+    body, status, _, _ = get_html(source, url)
+    if not body or status != 200:
+        raise ValueError('release page unavailable')
+    parsed = parse_release(body, url, job['payload']['version'])
+    digest = sha256(body.encode()).hexdigest()
+    with Session.begin() as db:
+        record_fetch(db, source['id'], url, status, digest, body=body)
+        release = db.execute(text('SELECT * FROM technology_releases WHERE technology=:tech AND version=:version'),
+                             {'tech': 'Python', 'version': parsed.version}).mappings().first()
+        stamp = now()
+        if release and release['latest_hash'] == digest:
+            return
+        if release:
+            release_id = release['id']
+            db.execute(text('UPDATE technology_releases SET latest_hash=:digest,updated_at=:stamp,release_type=:type,published_at=:published WHERE id=:id'),
+                       {'digest': digest, 'stamp': stamp, 'type': parsed.release_type,
+                        'published': parsed.published_at, 'id': release_id})
+        else:
+            release_id = uid()
+            db.execute(text('INSERT INTO technology_releases (id,technology,version,source_id,canonical_url,release_type,published_at,latest_hash,created_at,updated_at) '
+                            'VALUES (:id,:tech,:version,:source,:url,:type,:published,:digest,:stamp,:stamp)'),
+                       {'id': release_id, 'tech': 'Python', 'version': parsed.version, 'source': source['id'],
+                        'url': parsed.url, 'type': parsed.release_type, 'published': parsed.published_at,
+                        'digest': digest, 'stamp': stamp})
+        revision_id = uid()
+        db.execute(text('INSERT INTO release_revisions (id,release_id,content_hash,raw_text,created_at) VALUES (:id,:release,:digest,:raw,:stamp)'),
+                   {'id': revision_id, 'release': release_id, 'digest': digest, 'raw': parsed.raw_text, 'stamp': stamp})
+        db.execute(text('INSERT INTO release_facts (id,revision_id,kind,description,evidence_excerpt,evidence_url,confidence) '
+                        'VALUES (:id,:revision,:kind,:description,:evidence,:url,:confidence)'),
+                   {'id': uid(), 'revision': revision_id, 'kind': parsed.release_type, 'description': parsed.evidence,
+                    'evidence': parsed.evidence, 'url': parsed.url, 'confidence': 'source_text'})
+        enqueue(db, 'generate-brief', {'revision_id': revision_id, 'fictional': source['adapter'] == 'fixture_python'},
+                f'brief:{revision_id}')
+
+
+def first_sentence(value: str) -> str:
+    return re.split(r'(?<=[.!?])\s+', value.strip(), maxsplit=1)[0]
+
+
+def process_brief(job: dict):
+    revision_id = job['payload']['revision_id']
+    with Session.begin() as db:
+        row = db.execute(text('SELECT r.id revision_id,r.release_id,v.version,v.release_type,v.canonical_url,f.description '
+                              'FROM release_revisions r JOIN technology_releases v ON v.id=r.release_id '
+                              'JOIN release_facts f ON f.revision_id=r.id WHERE r.id=:id LIMIT 1'),
+                         {'id': revision_id}).mappings().first()
+        if not row:
+            raise ValueError('revision has no verified source fact')
+        row = dict(row)
+        fictional = bool(job['payload']['fictional'])
+        copy = {
+            'title': f"Python {row['version']} {'security release' if row['release_type']=='security' else 'release'}",
+            'summary': first_sentence(row['description']),
+            'why_it_matters': f"Teams following Python {row['version'].rsplit('.', 1)[0]} may need to review this release.",
+            'next_action': 'Review the release notes before upgrading.' if not fictional else 'Review the recorded sample evidence.',
+        }
+        errors = validate_briefing_copy(copy)
+        status = 'needs_edit' if errors else ('published' if fictional else 'review_required')
+        if db.execute(text('SELECT id FROM tech_briefs WHERE revision_id=:id'), {'id': revision_id}).first():
+            return
+        stamp = now()
+        if status == 'published':
+            db.execute(text("UPDATE tech_briefs SET status='superseded',updated_at=:stamp WHERE release_id=:release AND status='published'"),
+                       {'stamp': stamp, 'release': row['release_id']})
+        db.execute(text('INSERT INTO tech_briefs (id,release_id,revision_id,title,summary,why_it_matters,next_action,score,status,fictional,source_label,source_url,created_at,updated_at) '
+                        'VALUES (:id,:release,:revision,:title,:summary,:why,:action,:score,:status,:fictional,:label,:url,:stamp,:stamp)'),
+                   {'id': uid(), 'release': row['release_id'], 'revision': revision_id, **{'title': copy['title'], 'summary': copy['summary']},
+                    'why': copy['why_it_matters'], 'action': copy['next_action'],
+                    'score': 75 if row['release_type']=='security' else 50, 'status': status,
+                    'fictional': int(fictional), 'label': 'Fictional recorded sample' if fictional else 'Python.org official release',
+                    'url': None if fictional else row['canonical_url'], 'stamp': stamp})
+
+
+def run_once():
+    job = claim_job()
+    if not job:
+        return False
+    try:
+        {'fetch-index': process_index, 'fetch-release': process_release, 'generate-brief': process_brief,
+         'generate-rss-brief': process_rss_brief}[job['kind']](job)
+        finish_job(job['id'])
+    except Exception as error:
+        fail_job(job, error)
+    return True
+
+
+def published_items():
+    with Session() as db:
+        data = rows(db.execute(text("SELECT b.*,r.technology,r.version,r.release_type,r.published_at,r.source_id FROM tech_briefs b "
+                                    "JOIN technology_releases r ON r.id=b.release_id WHERE b.status='published' "
+                                    'ORDER BY b.score DESC,b.created_at DESC LIMIT 150')))
+    return [
+        {'id': x['id'], 'type': x['release_type'], 'technology': x['technology'], 'title': x['title'],
+         'summary': x['summary'], 'why_it_matters': x['why_it_matters'], 'next_action': x['next_action'],
+         'source_label': x['source_label'], 'source_url': x['source_url'], 'fictional': bool(x['fictional']),
+         'topic': next((s[3] for s in SOURCES if s[0] == x['source_id']), 'Backend & APIs'), 'published_at': x['published_at'], 'updated_at': x['updated_at'],
+         'score': x['score']}
+        for x in data
+    ]
+
+
+def event_detail(brief_id: str):
+    with Session() as db:
+        brief = db.execute(text("SELECT b.*,r.technology,r.version,r.release_type,r.published_at FROM tech_briefs b "
+                                "JOIN technology_releases r ON r.id=b.release_id WHERE b.id=:id AND b.status='published'"),
+                           {'id': brief_id}).mappings().first()
+        if not brief:
+            return None
+        facts = rows(db.execute(text('SELECT kind,description,evidence_excerpt,evidence_url,confidence '
+                                     'FROM release_facts WHERE revision_id=:id ORDER BY id'),
+                                {'id': brief['revision_id']}))
+        return {'id': brief['id'], 'technology': brief['technology'], 'version': None if brief['version'].startswith('rss-') else brief['version'],
+                'type': brief['release_type'], 'title': brief['title'], 'summary': brief['summary'],
+                'why_it_matters': brief['why_it_matters'], 'next_action': brief['next_action'],
+                'source_label': brief['source_label'], 'source_url': brief['source_url'],
+                'fictional': bool(brief['fictional']), 'published_at': brief['published_at'],
+                'status': brief['status'], 'facts': facts}
+
+
+def review_queue():
+    with Session() as db:
+        return rows(db.execute(text("SELECT b.id,b.title,b.summary,b.status,b.source_url,b.source_label,b.score,b.created_at,"
+                                    "r.technology,r.release_type,r.published_at,substr(f.evidence_excerpt,1,320) evidence_preview "
+                                    'FROM tech_briefs b JOIN technology_releases r ON r.id=b.release_id '
+                                    'JOIN release_facts f ON f.revision_id=b.revision_id '
+                                    "WHERE b.status IN ('review_required','needs_edit') ORDER BY b.score DESC,b.created_at DESC LIMIT 200")))
+
+
+def draft_detail(brief_id: str):
+    with Session() as db:
+        brief = db.execute(text('SELECT b.*,r.technology,r.version,r.release_type,r.published_at '
+                                'FROM tech_briefs b JOIN technology_releases r ON r.id=b.release_id WHERE b.id=:id'),
+                           {'id': brief_id}).mappings().first()
+        if not brief:
+            return None
+        facts = rows(db.execute(text('SELECT kind,description,evidence_excerpt,evidence_url,confidence '
+                                     'FROM release_facts WHERE revision_id=:id ORDER BY id'),
+                                {'id': brief['revision_id']}))
+        return {**dict(brief), 'facts': facts}
+
+
+def review_decision(brief_id: str, action: str, actor: str = 'local-admin'):
+    if action not in ('publish', 'reject'):
+        raise ValueError('invalid review action')
+    with Session.begin() as db:
+        row = db.execute(text('SELECT * FROM tech_briefs WHERE id=:id'), {'id': brief_id}).mappings().first()
+        if not row:
+            raise ValueError('brief not found')
+        row = dict(row)
+        if row['status'] not in ('review_required', 'needs_edit'):
+            raise ValueError('brief is not awaiting review')
+        if action == 'publish':
+            errors = validate_briefing_copy(row)
+            if errors:
+                raise ValueError('brief copy needs editing: ' + ', '.join(errors))
+            if not db.execute(text('SELECT id FROM release_facts WHERE revision_id=:id'), {'id': row['revision_id']}).first():
+                raise ValueError('brief has no source evidence')
+        status = 'published' if action == 'publish' else 'rejected'
+        if status == 'published':
+            db.execute(text("UPDATE tech_briefs SET status='superseded',updated_at=:stamp WHERE release_id=:release AND status='published'"),
+                       {'stamp': now(), 'release': row['release_id']})
+        db.execute(text('UPDATE tech_briefs SET status=:status,updated_at=:stamp WHERE id=:id'),
+                   {'status': status, 'stamp': now(), 'id': brief_id})
+        db.execute(text('INSERT INTO review_audit (id,brief_id,action,actor,created_at) VALUES (:id,:brief,:action,:actor,:stamp)'),
+                   {'id': uid(), 'brief': brief_id, 'action': action, 'actor': actor, 'stamp': now()})
+    return {'id': brief_id, 'status': status}
+
+
+def edit_brief(brief_id: str, changes: dict, actor: str = 'local-admin'):
+    allowed = {'title', 'summary', 'why_it_matters', 'next_action'}
+    if not changes or set(changes) - allowed:
+        raise ValueError('only briefing copy fields may be edited')
+    with Session.begin() as db:
+        row = db.execute(text('SELECT * FROM tech_briefs WHERE id=:id'), {'id': brief_id}).mappings().first()
+        if not row or row['status'] not in ('review_required', 'needs_edit'):
+            raise ValueError('brief is not awaiting review')
+        copy = {key: changes.get(key, row[key]) for key in allowed}
+        errors = validate_briefing_copy(copy)
+        if errors:
+            raise ValueError(', '.join(errors))
+        db.execute(text('UPDATE tech_briefs SET title=:title,summary=:summary,why_it_matters=:why,next_action=:action,status=:status,updated_at=:stamp WHERE id=:id'),
+                   {'title': copy['title'], 'summary': copy['summary'], 'why': copy['why_it_matters'],
+                    'action': copy['next_action'], 'status': 'review_required', 'stamp': now(), 'id': brief_id})
+        db.execute(text('INSERT INTO review_audit (id,brief_id,action,actor,created_at) VALUES (:id,:brief,:action,:actor,:stamp)'),
+                   {'id': uid(), 'brief': brief_id, 'action': 'edit', 'actor': actor, 'stamp': now()})
+    return {'id': brief_id, 'status': 'review_required'}

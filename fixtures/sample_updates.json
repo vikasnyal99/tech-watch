@@ -1,0 +1,40 @@
+{
+  "notice": "FICTIONAL PLACEHOLDER DATA. Not real releases or advisories. Do not publish as live information.",
+  "items": [
+    {
+      "id": "demo-kube-1",
+      "type": "release",
+      "technology": "Kubernetes",
+      "title": "Kubernetes release: what to review",
+      "summary": "This fictional Kubernetes brief covers supported versions, removed APIs and upgrade prerequisites. It does not describe a live release.",
+      "why_it_matters": "Platform teams may need to check compatibility before upgrading.",
+      "next_action": "Review supported versions and release notes.",
+      "source_url": null,
+      "status": "demo"
+    },
+    {
+      "id": "demo-php-1",
+      "type": "security",
+      "technology": "PHP",
+      "title": "PHP security advisory: check exposure",
+      "summary": "This fictional PHP advisory covers affected versions and exposure conditions. No real vulnerability or installation impact is claimed.",
+      "why_it_matters": "You follow PHP; your actual exposure is unknown.",
+      "next_action": "Check the official advisory and your installed version.",
+      "affected_versions": null,
+      "fixed_versions": null,
+      "source_url": null,
+      "status": "demo"
+    },
+    {
+      "id": "demo-ai-1",
+      "type": "model",
+      "technology": "AI models",
+      "title": "AI model update: API changes to assess",
+      "summary": "This fictional model brief covers API availability, behavior changes and migration considerations. It makes no claim about a real model launch.",
+      "why_it_matters": "Teams may need to evaluate compatibility before adopting a model.",
+      "next_action": "Review the provider documentation.",
+      "source_url": null,
+      "status": "demo"
+    }
+  ]
+}

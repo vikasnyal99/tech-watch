@@ -1,0 +1,15 @@
+.source-health-page{padding:12px 20px 98px;color:#241914;min-height:calc(100dvh - 75px);background:#fdfaf6}
+.health-overline{font:700 10px/1.4 Arial,sans-serif;letter-spacing:.18em;color:#b74726;margin:14px 0 5px}
+.source-health-page h1{font:500 clamp(28px,7vw,35px)/1.05 Georgia,serif;margin:0 0 10px;letter-spacing:-.035em}
+.source-health-page>.muted{font-size:13px;line-height:1.4;margin:0 0 16px}
+.health-summary{padding:14px 15px;border:1px solid #ead8ca;border-radius:13px;background:linear-gradient(135deg,#fff9f2,#f8ece3);font-size:12px;line-height:1.7;color:#584339}
+.health-summary strong{font-size:17px;color:#9e3a20}.health-summary span{padding:0 3px;color:#b7a599}
+.health-checked{font-size:11px;color:#766a63;margin:8px 2px 14px}
+.health-actions{display:flex;gap:9px;margin-bottom:18px}.health-actions .btn{flex:1;min-width:0;font-size:12px;padding:10px 8px}
+.health-list{display:grid;gap:10px}.health-row{background:#fff;border:1px solid #e8ded5;border-radius:13px;padding:13px 14px;box-shadow:0 2px 8px #39251a08}
+.health-row-top{display:flex;align-items:start;justify-content:space-between;gap:10px}.health-row-top strong{display:block;font-size:14px;line-height:1.2}.health-row-top small{display:block;color:#88776b;font-size:10px;margin-top:3px}
+.health-badge{border-radius:100px;padding:4px 8px;text-transform:capitalize;font-size:10px;font-weight:700;letter-spacing:.02em;white-space:nowrap;background:#eeeae6;color:#655b53}
+.health-badge.healthy{background:#e8f4eb;color:#276344}.health-badge.error{background:#fae6e1;color:#a42e1b}.health-badge.stale{background:#fff0d4;color:#88550d}.health-badge.pending{background:#f3ecde;color:#765a25}.health-badge.paused,.health-badge.disabled{background:#eceae8;color:#6b625d}
+.health-row p{font-size:11px;line-height:1.4;color:#5f5149;margin:10px 0;overflow-wrap:anywhere}
+.health-meta{display:flex;justify-content:space-between;gap:8px;border-top:1px solid #f0e9e2;padding-top:9px;color:#88766a;font-size:10px;line-height:1.3}.health-meta a{color:#b84725;text-decoration:none;white-space:nowrap}
+.health-error{color:#a42e1b;background:#fff1ed;padding:10px;border-radius:8px;font-size:12px}

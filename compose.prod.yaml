@@ -1,0 +1,61 @@
+name: techwatch
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: techwatch
+      POSTGRES_USER: techwatch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the server .env file}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U techwatch -d techwatch"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  api:
+    build: .
+    image: techwatch-app:local
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://techwatch:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the server .env file}@db:5432/techwatch
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN in the server .env file}
+      OFFLINE_MODE: ${OFFLINE_MODE:-0}
+    networks:
+      - private
+      - proxy
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  worker:
+    image: techwatch-app:local
+    command: ["python", "-m", "backend.worker"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://techwatch:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the server .env file}@db:5432/techwatch
+      OFFLINE_MODE: ${OFFLINE_MODE:-0}
+    networks:
+      - private
+    depends_on:
+      api:
+        condition: service_healthy
+
+networks:
+  private: {}
+  proxy:
+    external: true
+    name: monitoring-service_default
+
+volumes:
+  pgdata: {}

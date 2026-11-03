@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 280" role="img" aria-label="Python release illustration">
+<defs><linearGradient id="paper" x2="1" y2="1"><stop stop-color="#fffaf4"/><stop offset="1" stop-color="#f4e8da"/></linearGradient><linearGradient id="tile" x2="1" y2="1"><stop stop-color="#c75b34"/><stop offset="1" stop-color="#a73919"/></linearGradient></defs>
+<rect width="720" height="280" rx="16" fill="url(#paper)"/>
+<g stroke="#decbb8" stroke-width="2" fill="none" opacity=".8"><path d="M20 226 176 82l174 148 188-162 162 152"/><path d="M28 68 185 210 354 52l171 164 160-149"/><path d="M95 0v280M270 0v280M450 0v280M625 0v280" stroke-dasharray="3 11"/></g>
+<g fill="#fffdf9" stroke="#d9c3b0" stroke-width="2"><rect x="73" y="55" width="104" height="75" rx="9"/><rect x="543" y="151" width="104" height="75" rx="9"/></g>
+<g fill="#b34b28"><circle cx="125" cy="92" r="7"/><circle cx="596" cy="188" r="7"/></g>
+<rect x="277" y="43" width="166" height="194" rx="30" fill="url(#tile)" transform="rotate(-7 360 140)"/>
+<text x="360" y="166" fill="#fff9f3" font-family="Georgia,serif" font-size="78" text-anchor="middle">Py</text>
+<g fill="#c96943"><circle cx="185" cy="210" r="5"/><circle cx="539" cy="68" r="5"/></g>
+</svg>

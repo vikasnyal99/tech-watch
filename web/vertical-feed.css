@@ -1,0 +1,57 @@
+/* The Cards reader occupies one viewport: a gesture replaces the entire briefing. */
+.feed-page{height:100dvh;min-height:0;padding-bottom:0;overflow:hidden}
+.feed-page .feed-controls{gap:5px}
+.feed-page .topic-trigger{flex:0 1 108px;min-width:0;max-width:108px;padding:0 7px;font-size:11px}
+.feed-page .feed-controls .mode{flex:none}
+.feed-page .feed-controls .mode button{min-width:67px;padding:5px 7px;font-size:11px}
+.slide-indicator{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:1px;color:#625b56;text-align:center}
+.slide-indicator span{min-width:0;display:grid;line-height:1.1}
+.slide-indicator strong{font-size:11px;font-weight:750;white-space:nowrap}
+.slide-indicator small{font-size:9px;white-space:nowrap;color:#796f68}
+.slide-step{border:0;background:transparent;color:#a53c1d;width:17px;min-width:17px;height:28px;padding:0;display:grid;place-items:center;font-size:17px;border-radius:7px;line-height:1}
+.slide-step:hover{background:#f7eae2}
+.slide-step:disabled{opacity:.3;cursor:default}
+.slide-step:focus-visible{outline:2px solid #a53c1d;outline-offset:1px}
+.card-stage{height:calc(100dvh - 240px);min-height:0;position:relative;display:flex;overflow:hidden;touch-action:none;overscroll-behavior:contain}
+.card-stage .card{height:100%;width:100%;margin:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:6px}
+.card-stage .card-art{width:100%;height:clamp(85px,22%,133px);aspect-ratio:auto;object-fit:cover;flex:none}
+.card-stage .card-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:7px 8px 5px}
+.card-stage .pill,.card-stage .relevance{font-size:9px;padding:3px 6px}
+.card-stage h2{font-size:clamp(21px,6.1vw,27px);line-height:1.04;margin:5px 0 3px}
+.card-stage .sample-line{font-size:11px!important;line-height:1.2!important;margin:2px 0 4px}
+.card-stage .summary{font-size:13px;line-height:1.27;margin:3px 0 0}
+.card-stage .facts{padding:4px 6px;margin:7px -1px 0}
+.card-stage .fact{font-size:12px;line-height:1.18;gap:6px;padding:3px 0}
+.card-stage .fact-icon{width:18px}
+.card-stage .fact-icon .ui-icon{width:15px;height:15px}
+.card-stage .fact div span{margin-top:1px}
+.card-stage .source-row{font-size:10px;line-height:1.15;padding:5px 0;margin-top:auto}
+.card-stage .actions{margin:5px 0 0;gap:5px}
+.card-stage .actions .btn{min-height:30px;font-size:10px;padding:4px 6px}
+.card-stage .actions .btn .ui-icon{width:13px;height:13px}
+.actions a.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;margin-left:auto}
+@media(max-height:650px){
+  .feed-page .top{height:60px}
+  .feed-page .top .brand-lockup{height:27px}
+  .feed-page .top .icon-button{width:36px;height:36px}
+  .feed-page .tabs button{padding:10px 3px;font-size:12px}
+  .feed-page .feed-controls{height:50px}
+  .feed-page .topic-trigger{height:32px}
+  .feed-page .feed-controls .mode button{height:30px}
+  .feed-page .bottom{height:55px}
+  .feed-page .bottom button .ui-icon{width:19px;height:19px}
+  .card-stage{height:calc(100dvh - 205px)}
+  .card-stage .card{padding:5px}
+  .card-stage .card-art{height:70px}
+  .card-stage .card-content{padding:5px 7px 3px}
+  .card-stage h2{font-size:22px;line-height:1.02;margin:3px 0 2px}
+  .card-stage .sample-line{display:none}
+  .card-stage .summary{font-size:12px;line-height:1.2;margin:3px 0 0}
+  .card-stage .facts{padding:2px 5px;margin-top:5px}
+  .card-stage .fact{font-size:11px;line-height:1.12;padding:2px 0}
+  .card-stage .source-row{padding:3px 0;font-size:9px}
+  .card-stage .actions{margin-top:3px}
+  .card-stage .actions .btn{min-height:27px;padding:3px 5px;font-size:9px}
+}
+@media(max-height:540px){.card-stage .card-art{height:48px}.card-stage h2{font-size:19px}.card-stage .summary{font-size:11px}.card-stage .fact{font-size:10px}.feed-page .top{height:54px}.feed-page .tabs button{padding:8px 3px}.feed-page .feed-controls{height:44px}.feed-page .bottom{height:49px}.card-stage{height:calc(100dvh - 181px)}}
+@media(max-width:365px){.slide-indicator small{display:none}.feed-page .topic-trigger{flex-basis:94px}.feed-page .feed-controls .mode button{min-width:62px}.slide-step{width:15px;min-width:15px}}

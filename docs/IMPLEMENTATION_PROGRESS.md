@@ -1,0 +1,37 @@
+# Backend implementation progress
+
+## Decisions
+
+- Product and UI: TechWatch; preserve the existing approved web experience.
+- API and workers: Python + FastAPI, separate processes.
+- Source-to-feed paths: Python releases plus curated official RSS/Atom feeds.
+- Durable jobs: PostgreSQL job table for the initial scale. Redis is deferred until there is a measured need.
+- AI, accounts and push: disabled in the first live-source milestone. Guest preferences remain supported.
+
+## Current state
+
+- The FastAPI demo, PostgreSQL preferences/bookmarks and four fictional cards work in Docker Compose.
+- A separate worker schedules and processes durable database jobs. Its recorded Python release fixture passes discovery, parsing, revision and evidence storage, brief generation and publication.
+- The guarded Python.org adapter can fetch official releases; that source is disabled by default. The [source registry](SOURCE_REGISTRY.md) lists 29 official RSS/Atom feeds across cloud providers, languages, frameworks, security, and infrastructure. Twenty-eight are enabled; Docker is disabled because TLS responses were intermittent here.
+- The worker fetches each feed hourly with conditional requests, keeps bounded response bodies, strips feed HTML, rejects off-host links, deduplicates by canonical URL and same-day normalized title, classifies and scores items, and creates drafts with feed excerpts as evidence. Scores prioritize security, breaking changes, releases and recency; editorial review decides what is actually important.
+- Every real item requires review before publication. The local review CLI and token-protected admin endpoints can show evidence, edit, publish or reject drafts; decisions are audited. The expanded editorial pass published 31 live briefings across 27 technologies; remaining feed entries are held for review.
+- The feed API now returns up to 100 items with a next cursor, and the normal app view hides fictional fixtures whenever reviewed live items exist. This is still curated coverage, not a guarantee of every major story. Accounts, installed-version matching, article-level fact extraction, AI rewriting and push notifications remain to be built. Node.js provides no feed descriptions and needs a dedicated article adapter.
+- Settings → Source health shows each official source's current status, last successful check, and latest fetch error. `GET /v1/source-health` returns the same source-level states and a summary. A source is stale after more than two polling intervals plus five minutes without success; offline mode is shown as paused, and Docker remains disabled. Fetch failures are recorded separately from briefing-generation failures.
+
+## Acceptance gate for the first milestone
+
+- A recorded Python release passes fetch/parse/revision/evidence/brief/review/feed with deterministic tests.
+- Duplicate and unchanged source fetches do not produce duplicate cards.
+- Real source publication requires authorized review.
+- A failed source never creates a fabricated release.
+- Compose starts the API and worker; the existing UI still runs.
+
+## Run and inspect
+
+Run `docker compose up --build -d`, then open `http://localhost:8000/`. The worker and API are separate services. `docker compose ps` shows their health and `docker compose logs -f worker` shows processing. Run `.venv/bin/python -m pytest -q` for the local test suite.
+
+Set `OFFLINE_MODE=1` in Compose to stop live collection during offline development. The app can still show recorded fixture cards on a fresh database, and already-reviewed cards remain available from storage.
+
+Review drafts locally with `docker compose exec api python -m backend.review_cli queue` and inspect full evidence with `docker compose exec api python -m backend.review_cli show ID`. Use `docker compose exec api python -m backend.review_cli edit ID --summary '...'` to fit the one-screen card budget, then `docker compose exec api python -m backend.review_cli publish ID` or `reject ID`. Check each entry's `source_url` and retained evidence before publishing; the queue is a draft list, not a verified claim of impact. Review changes appear in the app when the feed refreshes.
+
+The UI creates an installation ID for guest preferences. API calls to `/v1/feed` must include a valid UUID in `X-Installation-ID`. Set a private `ADMIN_TOKEN` in the environment to use `/admin/*` endpoints; do not put that token into the browser client.
