@@ -2,7 +2,7 @@
 
 ## Current artifacts
 
-The native Flutter Android client is in `mobile/`. The `preview` flavor uses the temporary EC2 IP over HTTP and has package ID `com.zivantaai.techwatch.preview`. It is for installation and internal testing only. The `production` flavor uses package ID `com.zivantaai.techwatch`, defaults to the future HTTPS domain, and does not permit cleartext traffic. Both target API 36. The only Android permission requested by the app is Internet.
+The native Flutter Android client is in `mobile/`. The `preview` flavor uses the temporary EC2 IP over HTTP and has package ID `com.zivantaai.techwatch.preview`. It is for installation and internal testing only. The `production` flavor uses package ID `com.zivantaai.techwatch`, defaults to the future HTTPS domain, and does not permit cleartext traffic. Both target API 36. The app asks for no runtime permissions; the merged manifest contains Internet and an AndroidX receiver compatibility permission.
 
 The upload signing key was generated outside the repository at `~/.local/share/techwatch-signing/upload-keystore.p12`, with local Gradle properties in the same directory. Back up both securely. The key passwords are not in Git.
 
