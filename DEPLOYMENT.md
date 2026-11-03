@@ -1,6 +1,9 @@
 # TechWatch deployment
 
-The public preview runs on the existing EC2 host at `techwatch.zivantaai.com`.
+The public preview runs on the existing EC2 host. Until the owner's DNS A
+record is added, it is available at
+`https://techwatch.65-1-226-15.sslip.io/`. The permanent hostname will be
+`techwatch.zivantaai.com`.
 `compose.prod.yaml` keeps PostgreSQL and the worker on TechWatch's private
 network. Only the API joins the host's existing Caddy network. No TechWatch
 container publishes a host port.
@@ -34,7 +37,7 @@ Attach the API to the existing external Docker network
 file). Add this site block to the server's Caddyfile and validate before reload:
 
 ```caddyfile
-techwatch.zivantaai.com {
+techwatch.zivantaai.com, techwatch.65-1-226-15.sslip.io {
   encode gzip
   @private path /admin/* /docs /redoc /openapi.json
   respond @private 404
@@ -46,6 +49,8 @@ Create an A record for `techwatch.zivantaai.com` that points to the instance's
 public IP before expecting HTTPS. The instance currently has an automatically
 assigned public IP, so a stop/start can change it. Caddy obtains and renews
 the TLS certificate once DNS is correct and ports 80/443 are reachable.
+After the permanent hostname works over HTTPS, remove the temporary sslip.io
+hostname from the Caddy site block and reload Caddy.
 
 ## Checks and rollback
 
