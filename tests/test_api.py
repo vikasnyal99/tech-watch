@@ -22,4 +22,9 @@ def test_flow():
         assert len(c.get('/v1/bookmarks',headers=h).json()['items'])==1
         assert c.delete('/v1/bookmarks/demo-php-1',headers=h).status_code==200
         assert not c.get('/v1/bookmarks',headers=h).json()['items']
+        assert c.put('/v1/bookmarks/demo-php-1',headers=h).status_code==200
+        assert c.delete('/v1/me',headers=h).json()=={'deleted':True}
+        assert not c.get('/v1/preferences',headers=h).json()['onboarded']
+        assert not c.get('/v1/bookmarks',headers=h).json()['items']
+        assert 'TechWatch Privacy Policy' in c.get('/privacy').text
         assert c.post('/admin/ingest-preview',json={'candidates':[]}).status_code==403

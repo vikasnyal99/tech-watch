@@ -31,7 +31,7 @@ The original handoff supplied specifications, starter fixtures and raster design
 - Title must convey the actual update; brief plain-language summary preserves essential facts and uncertainty. Match products and versions carefully. Link to source.
 - Design: light warm-white editorial backgrounds, white cards, restrained terracotta accents, serif titles, sans-serif body/controls, subtle depth.
 - Source discovery uses curated official sources, APIs and feeds, supplemented by permitted discovery; no claim to crawl the whole web or guarantee completeness.
-- Implemented backend: Python/FastAPI, PostgreSQL, background worker and Docker Compose. The current client is mobile-first web; a native client has not been built.
+- Implemented backend: Python/FastAPI, PostgreSQL, background worker and Docker Compose. The mobile-first web client remains available, and `mobile/` contains the native Flutter Android client. See [mobile/README.md](mobile/README.md) for preview and Play release builds.
 - References and timestamps in generated screens are example content, not verified news. Avoid invented dates and incidents in production.
 
 ## Directory

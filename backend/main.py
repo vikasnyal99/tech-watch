@@ -72,6 +72,10 @@ def ai_relevant(item: dict) -> bool:
 def index():
     return FileResponse('web/index.html')
 
+@app.get('/privacy')
+def privacy_policy():
+    return FileResponse('web/privacy.html')
+
 @app.get('/health')
 def health():
     return {'ok': True, 'mode': 'official-feeds-with-review', 'fictional_fallback': True}
@@ -91,6 +95,14 @@ def put_preferences(body: Preferences, x_installation_id: str | None = Header(No
         db.execute(text('DELETE FROM preferences WHERE installation_id=:id'), {'id': ident})
         db.execute(text('INSERT INTO preferences (installation_id,data) VALUES (:id,:data)'), {'id': ident, 'data': body.model_dump_json()})
     return body
+
+@app.delete('/v1/me')
+def delete_installation_data(x_installation_id: str | None = Header(None)):
+    ident = installation(x_installation_id)
+    with Session.begin() as db:
+        db.execute(text('DELETE FROM bookmarks WHERE installation_id=:id'), {'id': ident})
+        db.execute(text('DELETE FROM preferences WHERE installation_id=:id'), {'id': ident})
+    return {'deleted': True}
 
 @app.get('/v1/feed')
 def feed(section: str = Query('feed', pattern='^(feed|stack|trending|ai)$'), topic: str = '', cursor: int = 0, limit: int = Query(100, ge=1, le=100), demo: bool = False, x_installation_id: str | None = Header(None)):
