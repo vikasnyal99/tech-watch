@@ -5,7 +5,7 @@
       "id": "demo-kube-1",
       "type": "release",
       "technology": "Kubernetes",
-      "title": "Kubernetes release: what to review",
+      "title": "Kubernetes major release: upgrade checklist",
       "summary": "This fictional Kubernetes brief covers supported versions, removed APIs and upgrade prerequisites. It does not describe a live release.",
       "why_it_matters": "Platform teams may need to check compatibility before upgrading.",
       "next_action": "Review supported versions and release notes.",

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from backend.db import Session, migrate
 from backend.data import fixture_items, TECHNOLOGIES, TOPICS, ROLES
+from backend.feed_selection import personal_feed, trending_feed
 from backend.pipeline import ingest
 from backend.engine import (seed_source, seed_rss_sources, published_items, review_queue, review_decision,
                             manual_recheck, edit_brief, source_health, configure_source, event_detail, draft_detail)
@@ -108,19 +109,22 @@ def delete_installation_data(x_installation_id: str | None = Header(None)):
 def feed(section: str = Query('feed', pattern='^(feed|stack|trending|ai)$'), topic: str = '', cursor: int = 0, limit: int = Query(100, ge=1, le=100), demo: bool = False, x_installation_id: str | None = Header(None)):
     ident = installation(x_installation_id)
     items = visible_items(demo)
+    preferences = prefs(ident)
     if section == 'stack':
-        follows = set(prefs(ident).follows)
+        follows = set(preferences.follows)
         items = [i for i in items if i['technology'] in follows]
     elif section == 'ai':
         items = [i for i in items if ai_relevant(i)]
     elif section == 'trending':
-        items = sorted(items, key=lambda item: (item.get('score') or 0, item.get('published_at') or ''), reverse=True)
+        items = trending_feed(items, preferences.signals)
+    else:
+        items = personal_feed(items, preferences)
     if topic:
         items = [i for i in items if i['topic'] == topic]
     start = max(cursor, 0)
     end = start + limit
     return {'items': items[start:end], 'next_cursor': end if end < len(items) else None,
-            'snapshot': 'reviewed-v1', 'fictional': all(i['fictional'] for i in items)}
+            'snapshot': 'ranked-v2', 'fictional': all(i['fictional'] for i in items)}
 
 @app.get('/v1/search')
 def search(q: str = ''):
