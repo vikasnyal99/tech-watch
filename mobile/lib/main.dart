@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
@@ -756,6 +757,15 @@ class _HomeState extends State<Home> {
     }
   }
 
+  Future<void> shareBrief(Map<String, dynamic> item) async {
+    final title = item['title']?.toString() ?? 'TechWatch briefing';
+    final summary = item['summary']?.toString() ?? '';
+    final source = item['source_url']?.toString();
+    final label = item['fictional'] == true ? 'FICTIONAL SAMPLE: ' : '';
+    final text = '$label$title\n$summary${source == null ? '' : '\n$source'}';
+    await SharePlus.instance.share(ShareParams(text: text, subject: title));
+  }
+
   void goSection(int value) {
     setState(() {
       section = value;
@@ -962,6 +972,7 @@ class _HomeState extends State<Home> {
           item: items[i],
           saved: saved.any((s) => s['id'] == items[i]['id']),
           onSave: () => bookmark(items[i]),
+          onShare: () => shareBrief(items[i]),
           onSource: () => openSource(items[i]),
         ),
       ),
@@ -1286,22 +1297,105 @@ class BriefCard extends StatelessWidget {
     required this.item,
     required this.saved,
     required this.onSave,
+    required this.onShare,
     required this.onSource,
   });
   final Map<String, dynamic> item;
   final bool saved;
-  final VoidCallback onSave, onSource;
+  final VoidCallback onSave, onShare, onSource;
+
+  Widget mediaIcon(
+    IconData icon,
+    String label,
+    VoidCallback action,
+    bool compact,
+  ) => Semantics(
+    button: true,
+    label: label,
+    child: Material(
+      color: Colors.white.withValues(alpha: .94),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: action,
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: compact ? 31 : 35,
+          height: compact ? 31 : 35,
+          child: Icon(icon, size: compact ? 18 : 20, color: clay),
+        ),
+      ),
+    ),
+  );
+
+  Widget insight(
+    IconData icon,
+    String heading,
+    String body,
+    bool compact,
+    bool tiny,
+  ) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(
+        icon,
+        color: clay,
+        size: tiny
+            ? 15
+            : compact
+            ? 17
+            : 19,
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              heading,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: tiny
+                    ? 10
+                    : compact
+                    ? 11
+                    : 12,
+              ),
+            ),
+            Text(
+              body,
+              style: TextStyle(
+                fontSize: tiny
+                    ? 10
+                    : compact
+                    ? 11
+                    : 12,
+                color: muted,
+                height: 1.18,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, size) {
-      final compact = size.maxHeight < 560;
-      final title = item['title']?.toString() ?? '',
-          summary = item['summary']?.toString() ?? '';
-      final why = item['why_it_matters']?.toString() ?? '',
-          action = item['next_action']?.toString() ?? '';
+      final compact = size.maxHeight < 560, tiny = size.maxHeight < 430;
       final fictional = item['fictional'] == true;
+      final technology = item['technology']?.toString() ?? '';
+      final source = fictional
+          ? 'Fictional example'
+          : item['source_label']?.toString() ?? 'Official source';
       return Container(
-        padding: EdgeInsets.all(compact ? 13 : 17),
+        padding: EdgeInsets.all(
+          tiny
+              ? 9
+              : compact
+              ? 12
+              : 16,
+        ),
         decoration: BoxDecoration(
           color: Colors.white,
           border: Border.all(color: line),
@@ -1317,184 +1411,293 @@ class BriefCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              height: compact ? 72 : 110,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFF9F4EE), Color(0xFFF1DFD0)],
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Stack(
-                children: [
-                  Positioned(
-                    right: 20,
-                    top: 0,
-                    bottom: 0,
-                    child: Opacity(
-                      opacity: .3,
-                      child: techMark(
-                        item['technology']?.toString() ?? '',
-                        size: compact ? 63 : 95,
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width:
+                      size.maxWidth -
+                      2 *
+                          (tiny
+                              ? 9
+                              : compact
+                              ? 12
+                              : 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        height: tiny
+                            ? 76
+                            : compact
+                            ? 98
+                            : 124,
+                        width: double.infinity,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: DecoratedBox(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Color(0xFFF9F4EE),
+                                        Color(0xFFF1DFD0),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                right: 25,
+                                top: 0,
+                                bottom: 0,
+                                child: Opacity(
+                                  opacity: .22,
+                                  child: techMark(
+                                    technology,
+                                    size: tiny
+                                        ? 70
+                                        : compact
+                                        ? 95
+                                        : 120,
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 7,
+                                left: 7,
+                                right: 7,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 7,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(
+                                            alpha: .94,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            7,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          source,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            color: ink,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    mediaIcon(
+                                      saved
+                                          ? Icons.bookmark
+                                          : Icons.bookmark_outline,
+                                      saved
+                                          ? 'Remove saved briefing'
+                                          : 'Save briefing',
+                                      onSave,
+                                      compact,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    mediaIcon(
+                                      Icons.ios_share_outlined,
+                                      'Share briefing',
+                                      onShare,
+                                      compact,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Positioned(
+                                left: 11,
+                                bottom: 10,
+                                child: Text(
+                                  technology,
+                                  style: const TextStyle(
+                                    color: clay,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                right: 7,
+                                bottom: 7,
+                                child: item['source_url'] == null
+                                    ? Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 9,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: muted,
+                                          borderRadius: BorderRadius.circular(
+                                            7,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'Sample only',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      )
+                                    : SizedBox(
+                                        height: tiny ? 28 : 32,
+                                        child: FilledButton.icon(
+                                          onPressed: onSource,
+                                          icon: const Icon(
+                                            Icons.open_in_new,
+                                            size: 14,
+                                          ),
+                                          label: const Text(
+                                            'Read source',
+                                            style: TextStyle(fontSize: 11),
+                                          ),
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: clay,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(7),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 14,
-                    bottom: 13,
-                    child: Text(
-                      item['technology']?.toString() ?? '',
-                      style: const TextStyle(
-                        color: clay,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
+                      SizedBox(
+                        height: tiny
+                            ? 6
+                            : compact
+                            ? 8
+                            : 11,
                       ),
-                    ),
+                      Text(
+                        fictional
+                            ? 'FICTIONAL SAMPLE · ${(item['type'] ?? 'UPDATE').toString().toUpperCase()}'
+                            : (item['type'] ?? 'UPDATE')
+                                  .toString()
+                                  .toUpperCase(),
+                        style: const TextStyle(
+                          color: clay,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: .6,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item['title']?.toString() ?? '',
+                        style: TextStyle(
+                          fontFamily: 'serif',
+                          fontSize: tiny
+                              ? 18
+                              : compact
+                              ? 21
+                              : 25,
+                          height: 1.05,
+                          fontWeight: FontWeight.w600,
+                          color: ink,
+                        ),
+                      ),
+                      SizedBox(
+                        height: tiny
+                            ? 4
+                            : compact
+                            ? 6
+                            : 9,
+                      ),
+                      Text(
+                        item['summary']?.toString() ?? '',
+                        style: TextStyle(
+                          fontSize: tiny
+                              ? 11
+                              : compact
+                              ? 12
+                              : 14,
+                          height: 1.27,
+                          color: ink,
+                        ),
+                      ),
+                      SizedBox(
+                        height: tiny
+                            ? 6
+                            : compact
+                            ? 9
+                            : 13,
+                      ),
+                      Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.all(
+                          tiny
+                              ? 6
+                              : compact
+                              ? 9
+                              : 11,
+                        ),
+                        decoration: BoxDecoration(
+                          color: soft,
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            insight(
+                              Icons.lightbulb_outline,
+                              'Why it matters',
+                              item['why_it_matters']?.toString() ?? '',
+                              compact,
+                              tiny,
+                            ),
+                            SizedBox(
+                              height: tiny
+                                  ? 4
+                                  : compact
+                                  ? 6
+                                  : 9,
+                            ),
+                            insight(
+                              Icons.check_box_outlined,
+                              'What to check',
+                              item['next_action']?.toString() ?? '',
+                              compact,
+                              tiny,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-            SizedBox(height: compact ? 8 : 11),
-            Text(
-              fictional
-                  ? 'FICTIONAL SAMPLE · ${(item['type'] ?? 'UPDATE').toString().toUpperCase()}'
-                  : (item['type'] ?? 'UPDATE').toString().toUpperCase(),
-              style: const TextStyle(
-                color: clay,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                letterSpacing: .6,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamily: 'serif',
-                fontSize: compact ? 21 : 25,
-                height: 1.05,
-                fontWeight: FontWeight.w600,
-                color: ink,
-              ),
-            ),
-            SizedBox(height: compact ? 5 : 9),
-            Text(
-              summary,
-              maxLines: compact ? 4 : 5,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: compact ? 12 : 14,
-                height: 1.29,
-                color: ink,
-              ),
-            ),
-            SizedBox(height: compact ? 8 : 14),
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(compact ? 9 : 12),
-              decoration: BoxDecoration(
-                color: soft,
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  insight(
-                    Icons.lightbulb_outline,
-                    'Why it matters',
-                    why,
-                    compact,
-                  ),
-                  SizedBox(height: compact ? 6 : 9),
-                  insight(
-                    Icons.check_box_outlined,
-                    'What to check',
-                    action,
-                    compact,
-                  ),
-                ],
-              ),
-            ),
-            const Spacer(),
-            const Divider(color: line, height: 12),
-            Text(
-              fictional
-                  ? 'Illustrative example — no live source'
-                  : 'Source: ${item['source_label'] ?? 'Official publisher'}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: muted, fontSize: 11),
-            ),
-            SizedBox(height: compact ? 5 : 8),
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed: onSave,
-                  icon: Icon(
-                    saved ? Icons.bookmark : Icons.bookmark_outline,
-                    size: 19,
-                  ),
-                  label: Text(saved ? 'Saved' : 'Save'),
-                  style: TextButton.styleFrom(foregroundColor: ink),
                 ),
-                const Spacer(),
-                if (item['source_url'] != null)
-                  FilledButton(
-                    onPressed: onSource,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: clay,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                    ),
-                    child: const Row(
-                      children: [
-                        Text('Read source'),
-                        SizedBox(width: 5),
-                        Icon(Icons.open_in_new, size: 15),
-                      ],
-                    ),
-                  ),
-              ],
+              ),
             ),
           ],
         ),
       );
     },
   );
-  Widget insight(IconData icon, String heading, String body, bool compact) =>
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: clay, size: compact ? 17 : 19),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  heading,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: compact ? 11 : 12,
-                  ),
-                ),
-                Text(
-                  body,
-                  maxLines: compact ? 2 : 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: compact ? 11 : 12,
-                    color: muted,
-                    height: 1.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
 }
 
 class Settings extends StatefulWidget {

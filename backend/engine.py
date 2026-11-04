@@ -293,7 +293,7 @@ def process_rss_brief(job: dict):
                               'WHERE r.id=:id LIMIT 1'), {'id': payload['revision_id']}).mappings().one()
         if db.execute(text('SELECT id FROM tech_briefs WHERE revision_id=:id'), {'id': payload['revision_id']}).first():
             return
-        copy = {'title': payload['title'], 'summary': first_sentence(row['description']),
+        copy = {'title': payload['title'], 'summary': source_summary(row['description']),
                 'why_it_matters': f"Official {row['technology']} update; review its relevance to your work.",
                 'next_action': 'Read the official source for details.'}
         status = 'needs_edit' if validate_briefing_copy(copy) else 'review_required'
@@ -347,6 +347,20 @@ def first_sentence(value: str) -> str:
     return re.split(r'(?<=[.!?])\s+', value.strip(), maxsplit=1)[0]
 
 
+def source_summary(value: str) -> str:
+    """Keep complete source sentences when they fit; never cut a factual clause."""
+    sentences = re.split(r'(?<=[.!?])\s+', value.strip())
+    chosen = []
+    for sentence in sentences:
+        candidate = ' '.join([*chosen, sentence])
+        if len(candidate) > 250:
+            break
+        chosen.append(sentence)
+        if len(candidate) >= 150:
+            break
+    return ' '.join(chosen) if chosen else first_sentence(value)
+
+
 def process_brief(job: dict):
     revision_id = job['payload']['revision_id']
     with Session.begin() as db:
@@ -360,11 +374,11 @@ def process_brief(job: dict):
         fictional = bool(job['payload']['fictional'])
         copy = {
             'title': f"Python {row['version']} {'security release' if row['release_type']=='security' else 'release'}",
-            'summary': first_sentence(row['description']),
+            'summary': source_summary(row['description']),
             'why_it_matters': f"Teams following Python {row['version'].rsplit('.', 1)[0]} may need to review this release.",
             'next_action': 'Review the release notes before upgrading.' if not fictional else 'Review the recorded sample evidence.',
         }
-        errors = validate_briefing_copy(copy)
+        errors = validate_briefing_copy(copy, allow_short_sample=fictional)
         status = 'needs_edit' if errors else ('published' if fictional else 'review_required')
         if db.execute(text('SELECT id FROM tech_briefs WHERE revision_id=:id'), {'id': revision_id}).first():
             return
@@ -482,7 +496,7 @@ def edit_brief(brief_id: str, changes: dict, actor: str = 'local-admin'):
         raise ValueError('only briefing copy fields may be edited')
     with Session.begin() as db:
         row = db.execute(text('SELECT * FROM tech_briefs WHERE id=:id'), {'id': brief_id}).mappings().first()
-        if not row or row['status'] not in ('review_required', 'needs_edit'):
+        if not row or row['status'] not in ('review_required', 'needs_edit', 'published'):
             raise ValueError('brief is not awaiting review')
         copy = {key: changes.get(key, row[key]) for key in allowed}
         errors = validate_briefing_copy(copy)

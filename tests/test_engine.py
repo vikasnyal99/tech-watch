@@ -131,10 +131,10 @@ def test_python_parser_and_url_guard():
 def test_official_rss_deduplicates_ranks_and_requires_review(isolated_db, monkeypatch):
     xml = '''<rss version="2.0"><channel><title>GitHub Changelog</title>
     <item><title>Security release for Actions</title><link>https://github.blog/changelog/security-release/</link>
-    <description>A security release changes Actions behavior for repository workflows.</description>
+    <description>GitHub Actions changes the default event policy for public repositories. Workflows using pull_request_target will be blocked unless an applicable policy explicitly allows the event.</description>
     <pubDate>Mon, 02 Nov 2026 10:00:00 GMT</pubDate></item>
     <item><title>Security release for Actions</title><link>https://github.blog/changelog/security-release/</link>
-    <description>A security release changes Actions behavior for repository workflows.</description></item>
+    <description>GitHub Actions changes the default event policy for public repositories. Workflows using pull_request_target will be blocked unless an applicable policy explicitly allows the event.</description></item>
     <item><title>Fake external</title><link>https://evil.test/news</link><description>Do not use.</description></item>
     </channel></rss>'''
     assert len(parse_feed(xml, 'https://github.blog/changelog/feed/')) == 1
@@ -146,13 +146,22 @@ def test_official_rss_deduplicates_ranks_and_requires_review(isolated_db, monkey
     assert count(isolated_db, 'release_facts') == 1
     assert not pipeline.published_items()
     queued = pipeline.review_queue()
-    assert len(queued) == 1 and queued[0]['status'] == 'review_required'
+    assert len(queued) == 1 and queued[0]['status'] == 'needs_edit'
     pipeline.manual_recheck('github-changelog'); drain()
     assert count(isolated_db, 'technology_releases') == 1
     assert count(isolated_db, 'release_revisions') == 1
+    pipeline.edit_brief(queued[0]['id'], {
+        'why_it_matters': 'Repositories relying on pull_request_target need an explicit policy before the change.',
+        'next_action': 'Audit workflows and configure an applicable Actions event policy.',
+    })
     pipeline.review_decision(queued[0]['id'], 'publish')
     item = pipeline.published_items()[0]
     assert item['technology'] == 'GitHub' and item['fictional'] is False
+    original_id = item['id']
+    pipeline.edit_brief(original_id, {'next_action': 'Audit affected workflows and set an explicit event policy.'})
+    assert not pipeline.published_items()
+    pipeline.review_decision(original_id, 'publish')
+    assert pipeline.published_items()[0]['id'] == original_id
     assert pipeline.event_detail(item['id'])['facts'][0]['evidence_url'] == item['source_url']
     with TestClient(main.app) as client:
         headers = {'X-Installation-ID': uuid.uuid4().hex}

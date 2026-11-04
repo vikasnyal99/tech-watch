@@ -1,7 +1,7 @@
 from backend.pipeline import ingest, validate_candidate, url_allowed
 
 def base(**changes):
-    x=dict(source_id='fixture', external_id='release-1', title='Example release', summary='Fictional release summary', why_it_matters='Teams may need to review compatibility.', next_action='Check official release notes.', technology='Kubernetes', type='release', evidence={})
+    x=dict(source_id='fixture', external_id='release-1', title='Example release', summary='This fictional release changes Kubernetes compatibility and upgrade behavior; teams should compare supported versions with their planned cluster changes.', why_it_matters='Teams may need to review compatibility.', next_action='Check official release notes.', technology='Kubernetes', type='release', evidence={})
     return x | changes
 
 def test_duplicates_merge_but_distinct_releases_survive():
@@ -20,10 +20,10 @@ def test_source_url_allowlist():
     assert not url_allowed('https://example.org.evil.test/', 'example.org')
 
 def test_overlong_card_copy_is_held_without_truncation():
-    candidate = base(summary='A' * 146)
+    candidate = base(summary='A' * 251)
     accepted, held = ingest([candidate])
     assert not accepted
-    assert 'summary exceeds 145 characters' in held[0]['errors']
+    assert 'summary exceeds 250 characters' in held[0]['errors']
     assert held[0]['candidate']['summary'] == candidate['summary']
 
 

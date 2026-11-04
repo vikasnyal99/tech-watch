@@ -23,7 +23,7 @@ void main() {
   testWidgets('briefing card keeps its actions visible in a phone viewport', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(390, 844);
+    tester.view.physicalSize = const Size(390, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -32,9 +32,9 @@ void main() {
       'type': 'release',
       'technology': 'Kubernetes',
       'title': 'Kubernetes release: what platform teams should review',
-      'summary': 'Review supported versions, API removals and upgrade prerequisites before changing clusters.',
-      'why_it_matters': 'Compatibility may affect deployed workloads.',
-      'next_action': 'Check release notes and test upgrades.',
+      'summary': 'This release changes supported versions and removes older APIs used by some workloads. Platform teams should review upgrade prerequisites, check add-on compatibility, and compare cluster behavior with the official release notes before rollout.',
+      'why_it_matters': 'Clusters and add-ons using removed APIs may need changes before a safe upgrade.',
+      'next_action': 'Inventory API usage and test the upgrade in a non-production cluster.',
       'source_label': 'Official Kubernetes release notes',
       'source_url': 'https://example.com',
       'fictional': false,
@@ -44,11 +44,12 @@ void main() {
         home: Scaffold(
           body: SafeArea(
             child: SizedBox(
-              height: 620,
+              height: 400,
               child: BriefCard(
                 item: item,
                 saved: false,
                 onSave: () {},
+                onShare: () {},
                 onSource: () {},
               ),
             ),
@@ -57,7 +58,12 @@ void main() {
       ),
     );
     expect(find.text('Read source'), findsOneWidget);
-    expect(find.text('Save'), findsOneWidget);
+    expect(find.byIcon(Icons.bookmark_outline), findsOneWidget);
+    expect(find.byIcon(Icons.ios_share_outlined), findsOneWidget);
+    expect(
+      find.textContaining('This release changes supported versions'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 }
