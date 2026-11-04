@@ -11,11 +11,11 @@ cd mobile
 flutter pub get
 flutter analyze
 flutter test
-flutter build apk --release --flavor preview --dart-define=API_BASE_URL=http://65.1.226.15
-flutter build appbundle --release --flavor preview --dart-define=API_BASE_URL=http://65.1.226.15
+flutter build apk --release --flavor preview --dart-define=API_BASE_URL=https://techwatch.zivantaai.com
+flutter build appbundle --release --flavor preview --dart-define=API_BASE_URL=https://techwatch.zivantaai.com
 ```
 
-The preview package ID is `com.zivantaai.techwatch.preview`. This variant alone permits cleartext traffic to the temporary IP. Install the APK directly for testing. The preview AAB demonstrates a signed bundle build; keep it out of the public Play listing.
+The preview package ID is `com.zivantaai.techwatch.preview`. It now uses the same HTTPS API as production. Install the APK directly for testing. The preview AAB demonstrates a signed bundle build; keep it out of the public Play listing.
 
 After DNS and HTTPS are active, build the production package ID `com.zivantaai.techwatch`:
 

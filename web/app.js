@@ -54,25 +54,85 @@ let storySearchTimer,storySearchSequence=0;
 function scheduleStorySearch(){clearTimeout(storySearchTimer);const query=state.search.trim(),sequence=++storySearchSequence;if(!query){state.searchLoading=false;searchResults();return}storySearchTimer=setTimeout(async()=>{try{const result=await api(`/v1/search?q=${encodeURIComponent(query)}`);if(sequence!==storySearchSequence)return;state.searchStories=result.stories||[]}catch{if(sequence!==storySearchSequence)return;state.searchStories=[]}state.searchLoading=false;if(state.page==='explore')searchResults()},220)}
 app.addEventListener('input',e=>{if(e.target.id==='search'){state.search=e.target.value;state.searchStories=[];state.searchLoading=!!state.search.trim();searchResults();scheduleStorySearch()}if(e.target.id==='focus-search'){let q=e.target.value.toLowerCase();document.querySelectorAll('.on-grid .on-tile').forEach(b=>b.hidden=!b.textContent.toLowerCase().includes(q))}if(e.target.id==='stack-search'){let q=e.target.value.toLowerCase();document.querySelectorAll('.stack-option').forEach(b=>b.hidden=!b.textContent.toLowerCase().includes(q));document.querySelectorAll('.stack-group').forEach(g=>{let matches=[...g.querySelectorAll('.stack-option')].some(b=>!b.hidden);g.hidden=!matches;g.open=q?matches:(state.stackExpanded[g.dataset.group]??(g.dataset.defaultOpen==='true'))})}});
 app.addEventListener('toggle',e=>{if(e.target.matches?.('.stack-group'))state.stackExpanded[e.target.dataset.group]=e.target.open},true);
-let cardMotionBusy=false;
+let cardMotionBusy=false,activeDrag=null;
+function reduceCardMotion(){return state.prefs?.reduced_motion||matchMedia('(prefers-reduced-motion: reduce)').matches}
+function stackPair(delta){
+  const next=state.positions[state.tab]+delta,stage=document.querySelector('.card-stage');
+  if(next<0||next>=state.items.length||!stage)return null;
+  const current=stage.querySelector('.card');
+  if(!current)return null;
+  stage.insertAdjacentHTML('beforeend',card(state.items[next]));
+  const incoming=stage.lastElementChild;
+  incoming.classList.add('stack-under');
+  incoming.setAttribute('aria-hidden','true');
+  incoming.inert=true;
+  current.classList.add('stack-current');
+  return {stage,current,incoming,delta,tab:state.tab,index:next};
+}
+function poseStack(pair,dy){
+  const height=pair.stage.clientHeight||1,progress=Math.min(1,Math.abs(dy)/height),direction=pair.delta;
+  pair.current.style.transform=`translate3d(0,${dy*.76}px,0) scale(${1-progress*.045}) rotate(${dy<0?-.65:.65*Number(dy!==0)}deg)`;
+  pair.incoming.style.transform=`translate3d(0,${direction*(1-progress)*height*.17}px,0) scale(${.965+progress*.035})`;
+  pair.incoming.style.opacity=String(.75+progress*.25);
+}
+async function settleStack(pair,commit){
+  if(cardMotionBusy)return;
+  cardMotionBusy=true;
+  const {current,incoming,stage,delta}=pair,height=stage.clientHeight||1;
+  const fromCurrent=current.style.transform||'translate3d(0,0,0) scale(1)';
+  const fromIncoming=incoming.style.transform||`translate3d(0,${delta*height*.17}px,0) scale(.965)`;
+  const options={duration:commit?310:220,easing:commit?'cubic-bezier(.19,.82,.25,1)':'cubic-bezier(.22,.8,.24,1.08)',fill:'forwards'};
+  try{
+    await Promise.allSettled([
+      current.animate([{transform:fromCurrent,opacity:1},{transform:commit?`translate3d(0,${-delta*height*1.04}px,0) scale(.955) rotate(${-delta*.6}deg)`:'translate3d(0,0,0) scale(1)',opacity:commit?.28:1}],options).finished,
+      incoming.animate([{transform:fromIncoming,opacity:incoming.style.opacity||.75},{transform:commit?'translate3d(0,0,0) scale(1)':`translate3d(0,${delta*height*.17}px,0) scale(.965)`,opacity:commit?1:.75}],options).finished,
+    ]);
+    if(commit&&state.tab===pair.tab&&state.page==='briefs'&&state.mode==='cards'){
+      state.positions[pair.tab]=pair.index;
+      render();
+    }else if(current.isConnected){
+      incoming.remove();
+      current.classList.remove('stack-current');
+      current.style.transform='';
+      current.style.opacity='';
+    }
+  }finally{cardMotionBusy=false}
+}
 async function moveCard(delta){
-  if(state.page!=='briefs'||state.mode!=='cards'||cardMotionBusy)return;
+  if(state.page!=='briefs'||state.mode!=='cards'||cardMotionBusy||activeDrag)return;
   const next=state.positions[state.tab]+delta;
   if(next<0||next>=state.items.length)return;
-  cardMotionBusy=true;
-  const stage=document.querySelector('.card-stage');
-  const oldCard=stage?.querySelector('.card');
-  const animate=!!oldCard&&!state.prefs?.reduced_motion&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if(animate)await oldCard.animate([{transform:'translateY(0)',opacity:1},{transform:`translateY(${delta>0?'-34%':'34%'})`,opacity:0}],{duration:170,easing:'ease-in',fill:'forwards'}).finished.catch(()=>{});
-  state.positions[state.tab]=next;
-  render();
-  const newCard=document.querySelector('.card-stage .card');
-  if(animate&&newCard)await newCard.animate([{transform:`translateY(${delta>0?'38%':'-38%'})`,opacity:0},{transform:'translateY(0)',opacity:1}],{duration:220,easing:'cubic-bezier(.2,.8,.2,1)'}).finished.catch(()=>{});
-  cardMotionBusy=false;
+  if(reduceCardMotion()){state.positions[state.tab]=next;render();return}
+  const pair=stackPair(delta);
+  if(pair){poseStack(pair,0);await settleStack(pair,true)}
 }
-let touchStart=null;
-app.addEventListener('touchstart',e=>{if(!e.target.closest('.card-stage'))return;touchStart={x:e.changedTouches[0].clientX,y:e.changedTouches[0].clientY}},{passive:true});
-app.addEventListener('touchend',e=>{if(!touchStart||!e.target.closest('.card-stage')){touchStart=null;return}const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y;touchStart=null;if(Math.abs(dy)<55||Math.abs(dy)<Math.abs(dx)*1.25)return;moveCard(dy<0?1:-1)},{passive:true});
+app.addEventListener('touchstart',e=>{
+  if(cardMotionBusy||state.page!=='briefs'||state.mode!=='cards'||!e.target.closest('.card-stage')||e.target.closest('button,a,input'))return;
+  activeDrag={x:e.changedTouches[0].clientX,y:e.changedTouches[0].clientY,time:performance.now(),pair:null,cancelled:false,dy:0};
+},{passive:true});
+app.addEventListener('touchmove',e=>{
+  const drag=activeDrag;if(!drag||drag.cancelled||reduceCardMotion())return;
+  const dx=e.changedTouches[0].clientX-drag.x,dy=e.changedTouches[0].clientY-drag.y;
+  if(Math.abs(dx)>Math.abs(dy)*1.25&&Math.abs(dx)>18){drag.cancelled=true;if(drag.pair)settleStack(drag.pair,false);return}
+  if(Math.abs(dy)<7)return;
+  const direction=dy<0?1:-1;
+  if(drag.pair&&drag.pair.delta!==direction){drag.pair.incoming.remove();drag.pair.current.classList.remove('stack-current');drag.pair.current.style.transform='';drag.pair=null}
+  if(!drag.pair)drag.pair=stackPair(direction);
+  drag.dy=dy;
+  if(drag.pair)poseStack(drag.pair,Math.max(-drag.pair.stage.clientHeight*.88,Math.min(dy,drag.pair.stage.clientHeight*.88)));
+},{passive:true});
+app.addEventListener('touchend',e=>{
+  const drag=activeDrag;activeDrag=null;if(!drag||drag.cancelled)return;
+  const dy=e.changedTouches[0].clientY-drag.y,dx=e.changedTouches[0].clientX-drag.x;
+  if(Math.abs(dy)<30||Math.abs(dy)<Math.abs(dx)*1.25){if(drag.pair)settleStack(drag.pair,false);return}
+  const direction=dy<0?1:-1;
+  if(reduceCardMotion()){moveCard(direction);return}
+  const pair=drag.pair?.delta===direction?drag.pair:stackPair(direction);
+  if(!pair)return;
+  const velocity=Math.abs(dy)/Math.max(1,performance.now()-drag.time);
+  settleStack(pair,Math.abs(dy)>pair.stage.clientHeight*.18||velocity>.55);
+},{passive:true});
+app.addEventListener('touchcancel',()=>{const drag=activeDrag;activeDrag=null;if(drag?.pair)settleStack(drag.pair,false)},{passive:true});
 let lastWheel=0;
 app.addEventListener('wheel',e=>{const card=e.target.closest('.card-stage .card');if(!card||Math.abs(e.deltaY)<12)return;const down=e.deltaY>0;e.preventDefault();const now=Date.now();if(now-lastWheel<450)return;lastWheel=now;moveCard(down?1:-1)},{passive:false});
 document.addEventListener('keydown',e=>{if(state.page==='briefs'&&state.mode==='cards'&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName)&&['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();moveCard(e.key==='ArrowDown'?1:-1)}});

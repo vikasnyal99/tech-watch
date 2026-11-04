@@ -627,7 +627,7 @@ class _HomeState extends State<Home> {
   String topic = '', query = '';
   String? error;
   List<Map<String, dynamic>> items = [], saved = [], searchResults = [];
-  final pager = PageController();
+  final pagerKey = GlobalKey<EditorialPagerState>();
   final searchController = TextEditingController();
   static const sections = ['Feed', 'Your Stack', 'Trending', 'AI'];
   static const sectionIds = ['feed', 'stack', 'trending', 'ai'];
@@ -640,7 +640,6 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
-    pager.dispose();
     searchController.dispose();
     super.dispose();
   }
@@ -664,7 +663,7 @@ class _HomeState extends State<Home> {
           loading = false;
         });
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && pager.hasClients) pager.jumpToPage(0);
+          if (mounted) pagerKey.currentState?.jumpToPage(0);
         });
       }
     } catch (_) {
@@ -954,19 +953,19 @@ class _HomeState extends State<Home> {
               listMode = false;
             });
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (pager.hasClients) pager.jumpToPage(i);
+              pagerKey.currentState?.jumpToPage(i);
             });
           }),
         ),
       );
     }
-    return PageView.builder(
-      key: ValueKey('${sectionIds[section]}-$topic'),
-      controller: pager,
-      scrollDirection: Axis.vertical,
-      itemCount: items.length,
+    return EditorialPager(
+      key: pagerKey,
+      items: items,
+      initialIndex: focus,
+      reducedMotion: widget.prefs['reduced_motion'] == true,
       onPageChanged: (i) => setState(() => focus = i),
-      itemBuilder: (_, i) => Padding(
+      itemBuilder: (i) => Padding(
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
         child: BriefCard(
           item: items[i],
@@ -1288,6 +1287,209 @@ class _HomeState extends State<Home> {
               ),
       ),
     ],
+  );
+}
+
+class EditorialPager extends StatefulWidget {
+  const EditorialPager({
+    super.key,
+    required this.items,
+    required this.initialIndex,
+    required this.itemBuilder,
+    required this.onPageChanged,
+    required this.reducedMotion,
+  });
+
+  final List<Map<String, dynamic>> items;
+  final int initialIndex;
+  final Widget Function(int) itemBuilder;
+  final ValueChanged<int> onPageChanged;
+  final bool reducedMotion;
+
+  @override
+  State<EditorialPager> createState() => EditorialPagerState();
+}
+
+class EditorialPagerState extends State<EditorialPager>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController motion;
+  Animation<double> position = const AlwaysStoppedAnimation<double>(0);
+  late int index;
+  double progress = 0, viewportHeight = 1;
+  bool settling = false;
+
+  @override
+  void initState() {
+    super.initState();
+    index = widget.initialIndex.clamp(0, widget.items.length - 1);
+    motion = AnimationController(vsync: this);
+    motion.addListener(() => setState(() => progress = position.value));
+  }
+
+  @override
+  void didUpdateWidget(covariant EditorialPager oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.items, widget.items)) {
+      motion.stop();
+      settling = false;
+      progress = 0;
+      index = widget.initialIndex.clamp(0, widget.items.length - 1);
+    }
+  }
+
+  @override
+  void dispose() {
+    motion.dispose();
+    super.dispose();
+  }
+
+  void jumpToPage(int value) {
+    if (widget.items.isEmpty) return;
+    motion.stop();
+    setState(() {
+      index = value.clamp(0, widget.items.length - 1);
+      progress = 0;
+      settling = false;
+    });
+    widget.onPageChanged(index);
+  }
+
+  bool get reduced =>
+      widget.reducedMotion || MediaQuery.disableAnimationsOf(context);
+
+  Future<void> settle(bool commit) async {
+    if (settling || widget.items.isEmpty) return;
+    final direction = progress >= 0 ? 1 : -1;
+    final next = index + direction;
+    commit = commit && next >= 0 && next < widget.items.length;
+    if (reduced) {
+      if (commit) jumpToPage(next);
+      return;
+    }
+    settling = true;
+    final start = progress;
+    motion.duration = Duration(milliseconds: commit ? 310 : 220);
+    position =
+        Tween<double>(
+          begin: start,
+          end: commit ? direction.toDouble() : 0,
+        ).animate(
+          CurvedAnimation(
+            parent: motion,
+            curve: commit ? Curves.easeOutCubic : Curves.easeOutBack,
+          ),
+        );
+    try {
+      await motion.forward(from: 0).orCancel;
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      if (commit) index = next;
+      progress = 0;
+      settling = false;
+    });
+    if (commit) widget.onPageChanged(index);
+  }
+
+  void step(int direction) {
+    if (settling ||
+        index + direction < 0 ||
+        index + direction >= widget.items.length) {
+      return;
+    }
+    if (reduced) {
+      jumpToPage(index + direction);
+    } else {
+      setState(() => progress = direction * .04);
+      settle(true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, size) {
+      viewportHeight = size.maxHeight;
+      final direction = progress >= 0 ? 1 : -1;
+      final next = index + direction;
+      final amount = progress.abs().clamp(0.0, 1.0);
+      final showNext = amount > 0 && next >= 0 && next < widget.items.length;
+      return Semantics(
+        label: 'Briefing ${index + 1} of ${widget.items.length}',
+        onIncrease: index < widget.items.length - 1 ? () => step(1) : null,
+        onDecrease: index > 0 ? () => step(-1) : null,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onVerticalDragStart: (_) {
+            if (settling) return;
+            motion.stop();
+            setState(() => progress = 0);
+          },
+          onVerticalDragUpdate: (details) {
+            if (settling) return;
+            final nextProgress =
+                (progress - details.primaryDelta! / viewportHeight).clamp(
+                  -.88,
+                  .88,
+                );
+            if (reduced) {
+              progress = nextProgress;
+            } else {
+              setState(() => progress = nextProgress);
+            }
+          },
+          onVerticalDragEnd: (details) {
+            if (settling) return;
+            final velocity = -(details.primaryVelocity ?? 0) / viewportHeight;
+            final commit =
+                progress.abs() > .18 ||
+                (progress.abs() > .04 &&
+                    velocity.abs() > .7 &&
+                    velocity.sign == progress.sign);
+            settle(commit);
+          },
+          onVerticalDragCancel: () {
+            if (!settling) settle(false);
+          },
+          child: ClipRect(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (showNext)
+                  IgnorePointer(
+                    child: ExcludeSemantics(
+                      child: Transform.translate(
+                        offset: Offset(
+                          0,
+                          direction * (1 - amount) * viewportHeight * .17,
+                        ),
+                        child: Transform.scale(
+                          scale: .965 + amount * .035,
+                          child: Opacity(
+                            opacity: .75 + amount * .25,
+                            child: widget.itemBuilder(next),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                Transform.translate(
+                  offset: Offset(0, -progress * viewportHeight * .76),
+                  child: Transform.rotate(
+                    angle: -progress * .01,
+                    child: Transform.scale(
+                      scale: 1 - amount * .045,
+                      child: widget.itemBuilder(index),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
   );
 }
 

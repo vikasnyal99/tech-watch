@@ -1,9 +1,8 @@
 # TechWatch deployment
 
-The public preview runs on the existing EC2 host. Until the owner's DNS A
-record is added, it is available at `http://65.1.226.15/`. This IP preview
-uses HTTP for temporary testing. The permanent HTTPS hostname will be
-`techwatch.zivantaai.com`.
+TechWatch runs on the existing EC2 host at
+`https://techwatch.zivantaai.com/`. The hostname has an A record and a
+publicly trusted HTTPS certificate. Use this URL for web and Android builds.
 `compose.prod.yaml` keeps PostgreSQL and the worker on TechWatch's private
 network. Only the API joins the host's existing Caddy network. No TechWatch
 container publishes a host port.
@@ -45,19 +44,16 @@ techwatch.zivantaai.com {
 }
 
 http://65.1.226.15 {
-  encode gzip
-  @private path /admin/* /docs /redoc /openapi.json
-  respond @private 404
-  reverse_proxy techwatch-api:8000
+  redir https://techwatch.zivantaai.com{uri} permanent
 }
 ```
 
-Create an A record for `techwatch.zivantaai.com` that points to the instance's
-public IP before expecting HTTPS. The instance currently has an automatically
-assigned public IP, so a stop/start can change it. Caddy obtains and renews
-the TLS certificate once DNS is correct and ports 80/443 are reachable.
-After the permanent hostname works over HTTPS, remove the temporary IP site
-block from the Caddyfile and reload Caddy.
+Keep the A record for `techwatch.zivantaai.com` pointed at the instance's
+public IP. The instance currently has an automatically assigned public IP,
+so a stop/start can change it; update DNS or assign an Elastic IP before
+relying on the hostname long term. Caddy obtains and renews the TLS certificate
+while DNS and ports 80/443 remain correct. The old IP preview no longer serves
+the app directly; its HTTP route redirects to the HTTPS hostname.
 
 ## Checks and rollback
 

@@ -66,4 +66,70 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'editorial pager follows a swipe and snaps back from a short drag',
+    (tester) async {
+      final items = <Map<String, dynamic>>[
+        {'id': 'first'},
+        {'id': 'second'},
+      ];
+      var current = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              height: 400,
+              child: EditorialPager(
+                items: items,
+                initialIndex: 0,
+                reducedMotion: false,
+                onPageChanged: (value) => current = value,
+                itemBuilder: (index) => Center(child: Text(items[index]['id'])),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.drag(find.byType(EditorialPager), const Offset(0, -180));
+      await tester.pumpAndSettle();
+      expect(current, 1);
+      expect(find.text('second'), findsOneWidget);
+      await tester.timedDrag(
+        find.byType(EditorialPager),
+        const Offset(0, 50),
+        const Duration(milliseconds: 400),
+      );
+      await tester.pumpAndSettle();
+      expect(current, 1);
+      expect(find.text('first'), findsNothing);
+    },
+  );
+
+  testWidgets('reduced motion changes cards immediately', (tester) async {
+    var current = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            height: 400,
+            child: EditorialPager(
+              items: const [
+                {'id': 'first'},
+                {'id': 'second'},
+              ],
+              initialIndex: 0,
+              reducedMotion: true,
+              onPageChanged: (value) => current = value,
+              itemBuilder: (index) => Center(child: Text('card $index')),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.drag(find.byType(EditorialPager), const Offset(0, -180));
+    await tester.pump();
+    expect(current, 1);
+    expect(find.text('card 1'), findsOneWidget);
+  });
 }

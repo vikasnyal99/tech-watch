@@ -2,13 +2,13 @@
 
 ## Current artifacts
 
-The native Flutter Android client is in `mobile/`. The `preview` flavor uses the temporary EC2 IP over HTTP and has package ID `com.zivantaai.techwatch.preview`. It is for installation and internal testing only. The `production` flavor uses package ID `com.zivantaai.techwatch`, defaults to the future HTTPS domain, and does not permit cleartext traffic. Both target API 36. The app asks for no runtime permissions; the merged manifest contains Internet and an AndroidX receiver compatibility permission.
+The native Flutter Android client is in `mobile/`. The `preview` flavor has package ID `com.zivantaai.techwatch.preview` and is for installation and internal testing only. Both preview and production use `https://techwatch.zivantaai.com` and disallow cleartext traffic. The `production` flavor uses package ID `com.zivantaai.techwatch`. Both target API 36. The app asks for no runtime permissions; the merged manifest contains Internet and an AndroidX receiver compatibility permission.
 
 The upload signing key was generated outside the repository at `~/.local/share/techwatch-signing/upload-keystore.p12`, with local Gradle properties in the same directory. Back up both securely. The key passwords are not in Git.
 
 ## Before Play Console submission
 
-1. Point `techwatch.zivantaai.com` to the server, confirm HTTPS, and test the production API and `/privacy` URL. Do not upload the IP-only preview flavor as the public app.
+1. Keep `techwatch.zivantaai.com` pointed to the server, confirm HTTPS, and test the production API and `/privacy` URL. Do not upload the preview flavor as the public app.
 2. Confirm that `admin@zivantaai.com` is a monitored support and privacy email, or replace it in `web/privacy.html` and the Play listing. Review the privacy policy for accuracy against the final logging and hosting setup.
 3. Build `production` with `flutter build appbundle --release --flavor production --dart-define=API_BASE_URL=https://techwatch.zivantaai.com`. Keep package ID and signing key stable after first publication; increase the `+buildNumber` in `mobile/pubspec.yaml` for every update.
 4. Create the Play Console app and complete the store listing, real screenshots, app access declaration, ads declaration, content rating, target audience, and Data safety form. The form must accurately cover the random installation ID, preferences, bookmarks, server logs, service hosting and 30-day backups. Production traffic must use HTTPS before marking data as encrypted in transit.

@@ -13,7 +13,9 @@
 .slide-step:disabled{opacity:.3;cursor:default}
 .slide-step:focus-visible{outline:2px solid #a53c1d;outline-offset:1px}
 .card-stage{height:calc(100dvh - 240px);min-height:0;position:relative;display:flex;overflow:hidden;touch-action:none;overscroll-behavior:contain}
-.card-stage .card{height:100%;width:100%;margin:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:6px}
+.card-stage .card{position:absolute;inset:0;height:100%;width:100%;margin:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:6px;backface-visibility:hidden}
+.card-stage .card.stack-current{z-index:2;will-change:transform,opacity;transform-origin:center center;box-shadow:0 18px 35px #4b2b1d2b}
+.card-stage .card.stack-under{z-index:1;will-change:transform,opacity;transform-origin:center center;pointer-events:none}
 .card-media{position:relative;overflow:hidden;border-radius:9px;aspect-ratio:356/135;background:#f6f1ec}
 .card-media .card-art{display:block;width:100%;height:100%;aspect-ratio:auto;object-fit:cover}
 .media-top{position:absolute;top:7px;left:7px;right:7px;display:flex;align-items:flex-start;justify-content:space-between;gap:7px}
