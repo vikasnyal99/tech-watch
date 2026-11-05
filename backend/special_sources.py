@@ -134,3 +134,52 @@ def parse_kernel_releases(xml: str, limit: int = 8) -> list[Entry]:
     if not entries:
         raise ValueError('kernel feed has no official changelog links')
     return entries
+
+
+def parse_kafka_blog(html: str, limit: int = 8) -> list[Entry]:
+    soup = BeautifulSoup(html, 'html.parser')
+    entries, seen = [], set()
+    for link in soup.select('.td-blog-posts-list__body h5 a[href]'):
+        title = clean(link.get_text(' ', strip=True))
+        if 'release announcement' not in title.casefold():
+            continue
+        url = canonical_url(urljoin('https://kafka.apache.org', link['href']),
+                            'https://kafka.apache.org/blog/')
+        if not url or url in seen:
+            continue
+        date_match = re.search(r'/blog/(\d{4})/(\d{2})/(\d{2})/', url)
+        published = '-'.join(date_match.groups()) if date_match else None
+        entries.append(Entry(sha256(url.encode()).hexdigest()[:24], title[:500], url, '',
+                             published, 'release', score(title, 'release', published)))
+        seen.add(url)
+        if len(entries) >= limit:
+            break
+    if not entries:
+        raise ValueError('Kafka blog has no official release announcements')
+    return entries
+
+
+def parse_mysql_tags(xml: str, limit: int = 8) -> list[Entry]:
+    """Source tags are discovery leads, not a claim that binaries are available."""
+    entries = []
+    for item in feedparser.parse(xml).entries:
+        match = re.match(r'(mysql-\d[^:\s]*)', clean(item.get('title', '')))
+        url = canonical_url(item.get('link', ''), 'https://github.com/mysql/mysql-server/tags.atom')
+        if not match or not url:
+            continue
+        version = match.group(1).removeprefix('mysql-')
+        excerpt = clean(item.get('summary', ''))
+        if not excerpt:
+            continue
+        published = None
+        if item.get('updated_parsed'):
+            published = datetime(*item.updated_parsed[:3]).date().isoformat()
+        title = f'MySQL {version} source tag'
+        entries.append(Entry(sha256(url.encode()).hexdigest()[:24], title, url,
+                             f'Official MySQL Server source tag {version}. Associated commit: {excerpt}'[:4000],
+                             published, 'update', score(title, 'update', published)))
+        if len(entries) >= limit:
+            break
+    if not entries:
+        raise ValueError('MySQL tags feed has no server version tags')
+    return entries

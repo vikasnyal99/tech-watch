@@ -1,6 +1,6 @@
 # Official feed registry
 
-40 configured official sources: RSS/Atom feeds, Anthropic's newsroom pages, and GitHub's reviewed advisory API. Thirty-nine are enabled by default; Docker remains disabled. The Python downloads parser is a separate source and remains disabled by default, although an operator can enable it.
+43 configured official sources: RSS/Atom feeds, source pages, and GitHub's reviewed advisory API. Forty-two are enabled by default; Docker remains disabled. The Python downloads parser is a separate source and remains disabled by default, although an operator can enable it.
 
 | Technology | Feed | Default |
 |---|---|---|
@@ -42,9 +42,12 @@
 | Elasticsearch | [elasticsearch-releases](https://github.com/elastic/elasticsearch/releases.atom) | Enabled |
 | Linux | [linux-releases](https://www.kernel.org/feeds/kdist.xml) | Enabled |
 | Security advisories | [GitHub reviewed advisories](https://docs.github.com/en/rest/security-advisories/global-advisories) | Enabled; high and critical advisories only, with package and patched version retained |
+| MongoDB | [MongoDB product updates](https://www.mongodb.com/products/updates/rss/) | Enabled; official product update descriptions |
+| Kafka | [Apache Kafka release announcements](https://kafka.apache.org/blog/) | Enabled; extracts linked release articles |
+| MySQL | [MySQL Server source tags](https://github.com/mysql/mysql-server/tags.atom) | Enabled for discovery only; a source tag is not proof that binaries or release notes are available |
 
 ## Ingestion and publication
 
-The worker polls enabled sources hourly with size, timeout, HTTPS and host limits. It retains a bounded response when changed, extracts titles, dates, links and up to 4,000 characters of source text, rejects off-host article links unless explicitly allowed, deduplicates canonical URLs and same-day matching titles, and ranks drafts. Node.js and Anthropic article fetches run as separate bounded jobs. GitHub reviewed advisories include package ecosystem, affected range and first patched version where supplied by the API. A human reviews the source excerpt, edits one-screen copy, and publishes or rejects each draft. The card links to the original publisher. Source excerpts are evidence of what the publisher posted; they are not independent verification of user impact.
+The worker polls enabled sources hourly with size, timeout, HTTPS and host limits. It retains a bounded response when changed, extracts titles, dates, links and up to 4,000 characters of source text, rejects off-host article links unless explicitly allowed, deduplicates canonical URLs and same-day matching titles, and ranks drafts. Node.js, Anthropic and Kafka article fetches run as separate bounded jobs. GitHub reviewed advisories include package ecosystem, affected range and first patched version where supplied by the API. A human reviews the source excerpt, edits one-screen copy, and publishes or rejects each draft. The card links to the original publisher. Source excerpts are evidence of what the publisher posted; they are not independent verification of user impact.
 
 The normal Feed shows reviewed live items matching the installation's selected topics and followed technologies; role interests apply when neither is selected. Following “AI models” matches the AI models & APIs topic across providers. Trending selects broadly significant reviewed stories independently of those interests. Fictional fixtures appear only when no live items exist or `?demo=true` is passed to the feed API. Docker is registered but disabled because TLS handshakes were intermittent in this environment. React and several other projects are sourced from their official GitHub releases feeds. New discoveries remain drafts until review; source count is not the number of published cards. Service incident monitoring is a separate proposed feature and is not covered by these announcement feeds.

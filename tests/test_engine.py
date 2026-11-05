@@ -14,7 +14,8 @@ from backend.fetcher import check_url
 from backend.python_source import discover_releases, parse_release
 from backend.rss_source import parse_feed, score, canonical_url, SOURCES, DISABLED_BY_DEFAULT
 from backend.special_sources import (parse_anthropic_news, article_excerpt,
-                                     parse_github_advisories, parse_kernel_releases)
+                                     parse_github_advisories, parse_kernel_releases,
+                                     parse_kafka_blog, parse_mysql_tags)
 from backend.data import TECHNOLOGIES
 from backend.feed_selection import importance
 
@@ -254,6 +255,19 @@ def test_kernel_feed_uses_unique_official_changelog_urls():
     </channel></rss>'''
     entries = parse_kernel_releases(xml)
     assert len(entries) == 2 and entries[0].url != entries[1].url
+
+
+def test_kafka_and_mysql_specialized_discovery():
+    listing = '''<div class="td-blog-posts-list__body"><h5><a href="/blog/2026/10/23/apache-kafka-4.3.2-release-announcement/">Apache Kafka 4.3.2 Release Announcement</a></h5></div>'''
+    kafka = parse_kafka_blog(listing)
+    assert len(kafka) == 1 and kafka[0].published_at == '2026-10-23'
+    tags = '''<feed xmlns="http://www.w3.org/2005/Atom">
+    <entry><title>mysql-cluster-9.7: change</title><link href="https://github.com/mysql/mysql-server/releases/tag/mysql-cluster-9.7"/><content>Cluster source change</content></entry>
+    <entry><title>mysql-9.7.0: change</title><link href="https://github.com/mysql/mysql-server/releases/tag/mysql-9.7.0"/><content>Server source change for maintainers</content></entry>
+    </feed>'''
+    mysql = parse_mysql_tags(tags)
+    assert len(mysql) == 1 and mysql[0].title == 'MySQL 9.7.0 source tag'
+    assert mysql[0].kind == 'update'
 
 
 def test_source_health_tracks_success_failure_and_recovery(isolated_db, monkeypatch):

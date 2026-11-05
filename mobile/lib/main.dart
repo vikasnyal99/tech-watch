@@ -219,6 +219,9 @@ Widget techMark(String label, {double size = 25}) {
     'laravel': 'laravel',
     'elasticsearch': 'elasticsearch',
     'linux': 'linux',
+    'mysql': 'mysql',
+    'mongodb': 'mongodb',
+    'kafka': 'apachekafka',
   };
   final brand = brands[label.toLowerCase()];
   if (brand != null) {

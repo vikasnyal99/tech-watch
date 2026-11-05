@@ -8,7 +8,7 @@ TECHNOLOGIES = ['Python', 'Go', 'Java', 'PHP', 'TypeScript', 'Rust', 'Ruby', '.N
                 'Kubernetes', 'AWS', 'Google Cloud', 'Azure', 'Cloudflare', 'Akamai',
                 'GitHub', 'Docker', 'HashiCorp', 'PostgreSQL', 'Redis', 'Grafana', 'OpenAI',
                 'Node.js', 'Anthropic', 'AI models', 'FastAPI', 'Vue', 'Terraform',
-                'Laravel', 'Elasticsearch', 'Linux']
+                'Laravel', 'Elasticsearch', 'Linux', 'MySQL', 'MongoDB', 'Kafka']
 TOPICS = ['Backend & APIs', 'Frontend & Web', 'Cloud infrastructure', 'Kubernetes & containers', 'CI/CD & Developer tools', 'Reliability & observability', 'Security', 'AI models & APIs', 'Data & databases', 'Architecture & strategy']
 ROLES = ['Software engineer', 'Platform engineer', 'DevOps / cloud engineer', 'SRE', 'Product manager', 'Engineering leader']
 

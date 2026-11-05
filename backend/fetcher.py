@@ -14,7 +14,8 @@ ALLOWED_HOSTS = {'www.python.org', 'kubernetes.io', 'github.blog', 'aws.amazon.c
                  'www.ruby-lang.org', 'devblogs.microsoft.com', 'redis.io', 'grafana.com',
                  'blog.jetbrains.com', 'www.swift.org', 'spring.io', 'blog.angular.dev',
                  'nextjs.org', 'www.hashicorp.com', 'www.docker.com',
-                 'nodejs.org', 'www.anthropic.com', 'api.github.com', 'www.kernel.org'}
+                 'nodejs.org', 'www.anthropic.com', 'api.github.com', 'www.kernel.org',
+                 'www.mongodb.com', 'kafka.apache.org'}
 MAX_BYTES = 2_000_000
 
 

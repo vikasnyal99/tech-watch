@@ -8,7 +8,7 @@ Run `docker compose up --build -d` and open `http://localhost:8000/`. The FastAP
 
 For the EC2 public preview, use [DEPLOYMENT.md](DEPLOYMENT.md) and the separate `compose.prod.yaml`. The local Compose defaults are for development only.
 
-The worker polls the [official source registry](docs/SOURCE_REGISTRY.md) hourly. The registry has 40 official sources, 39 enabled by default, plus a separate Python release parser. Open **Settings → Source health** to see which sources are healthy, delayed, failing, paused or disabled. Every real item enters a review queue before publication. See [implementation progress](docs/IMPLEMENTATION_PROGRESS.md) for review commands, verified behavior and current limitations.
+The worker polls the [official source registry](docs/SOURCE_REGISTRY.md) hourly. The registry has 43 official sources, 42 enabled by default, plus a separate Python release parser. Open **Settings → Source health** to see which sources are healthy, delayed, failing, paused or disabled. Every real item enters a review queue before publication. See [implementation progress](docs/IMPLEMENTATION_PROGRESS.md) for review commands, verified behavior and current limitations.
 
 ## Original handoff references
 

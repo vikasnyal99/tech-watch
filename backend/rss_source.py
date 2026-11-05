@@ -51,6 +51,9 @@ SOURCES = (
     ('elasticsearch-releases', 'Elasticsearch', 'https://github.com/elastic/elasticsearch/releases.atom', 'Data & databases'),
     ('linux-releases', 'Linux', 'https://www.kernel.org/feeds/kdist.xml', 'Cloud infrastructure'),
     ('github-advisories', 'Security advisories', 'https://api.github.com/advisories?type=reviewed&sort=updated&per_page=50', 'Security'),
+    ('mongodb-updates', 'MongoDB', 'https://www.mongodb.com/products/updates/rss/', 'Data & databases'),
+    ('kafka-blog', 'Kafka', 'https://kafka.apache.org/blog/', 'Data & databases'),
+    ('mysql-tags', 'MySQL', 'https://github.com/mysql/mysql-server/tags.atom', 'Data & databases'),
 )
 
 ENTRY_HOSTS = {
@@ -60,8 +63,9 @@ ENTRY_HOSTS = {
 }
 
 SOURCE_ADAPTERS = {'anthropic-news': 'news_html', 'anthropic-models': 'news_html',
+                   'kafka-blog': 'news_html',
                    'github-advisories': 'ghsa'}
-ARTICLE_FEEDS = {'node-blog', 'node-security', 'anthropic-news', 'anthropic-models'}
+ARTICLE_FEEDS = {'node-blog', 'node-security', 'anthropic-news', 'anthropic-models', 'kafka-blog'}
 RELEASE_FEEDS = {'fastapi-releases', 'vue-releases', 'terraform-releases', 'laravel-releases',
                  'elasticsearch-releases', 'linux-releases'}
 

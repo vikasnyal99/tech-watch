@@ -15,7 +15,8 @@ from backend.python_source import discover_releases, parse_release
 from backend.rss_source import (SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, SOURCE_ADAPTERS,
                                 ARTICLE_FEEDS, RELEASE_FEEDS, Entry, parse_feed)
 from backend.special_sources import (parse_anthropic_news, article_excerpt,
-                                     parse_github_advisories, parse_kernel_releases)
+                                     parse_github_advisories, parse_kernel_releases,
+                                     parse_kafka_blog, parse_mysql_tags)
 
 FIXTURE_DIR = Path(__file__).parents[1] / 'fixtures' / 'python_source'
 
@@ -249,9 +250,11 @@ def process_rss_index(job: dict, source: dict):
     if source['adapter'] == 'ghsa':
         entries = parse_github_advisories(body)
     elif source['adapter'] == 'news_html':
-        entries = parse_anthropic_news(body)
+        entries = parse_kafka_blog(body) if source['id'] == 'kafka-blog' else parse_anthropic_news(body)
     elif source['id'] == 'linux-releases':
         entries = parse_kernel_releases(body)
+    elif source['id'] == 'mysql-tags':
+        entries = parse_mysql_tags(body)
     else:
         entries = parse_feed(body, source['url'], allowed_hosts=ENTRY_HOSTS.get(source['id']),
                              allow_missing_excerpt=source['id'] in ARTICLE_FEEDS,
