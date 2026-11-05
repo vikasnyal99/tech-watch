@@ -10,6 +10,8 @@ For the EC2 public preview, use [DEPLOYMENT.md](DEPLOYMENT.md) and the separate 
 
 The worker polls the [official source registry](docs/SOURCE_REGISTRY.md) hourly. The registry has 43 official sources, 42 enabled by default, plus a separate Python release parser. Open **Settings → Source health** to see which sources are healthy, delayed, failing, paused or disabled. Every real item enters a review queue before publication. See [implementation progress](docs/IMPLEMENTATION_PROGRESS.md) for review commands, verified behavior and current limitations.
 
+The **Health** bottom tab checks public Cloudflare, GitHub, and OpenAI status pages for active incidents and affected components. It shows an incident badge without taking space from the briefing card. Results are cached for three minutes, provider links remain available, and incomplete coverage is labeled explicitly. This is distinct from the feed collector's Source health page; public status does not determine account-specific impact.
+
 ## Original handoff references
 
 **Start here:** read `docs/01_PRODUCT_AND_FLOW.md`, `docs/02_CONTENT_ENGINE.md`, `docs/03_ARCHITECTURE_AND_DATA.md`, `docs/04_DESIGN_AND_SCREENS.md`, `docs/05_DELIVERY_AND_TESTS.md`, and `CODEX_PROMPT.md`, then inspect `design_references/`.

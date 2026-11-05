@@ -636,6 +636,8 @@ class _HomeState extends State<Home> {
   String topic = '', query = '';
   String? error;
   List<Map<String, dynamic>> items = [], saved = [], searchResults = [];
+  Map<String, dynamic>? health;
+  String? healthError;
   final pagerKey = GlobalKey<EditorialPagerState>();
   final searchController = TextEditingController();
   static const sections = ['Feed', 'Your Stack', 'Trending', 'AI'];
@@ -645,6 +647,7 @@ class _HomeState extends State<Home> {
     super.initState();
     refresh();
     loadSaved();
+    loadHealth();
   }
 
   @override
@@ -695,6 +698,15 @@ class _HomeState extends State<Home> {
           const SnackBar(content: Text('Could not load saved briefings.')),
         );
       }
+    }
+  }
+
+  Future<void> loadHealth() async {
+    try {
+      final result = await widget.api.getMap('/v1/service-health');
+      if (mounted) setState(() { health = result; healthError = null; });
+    } catch (_) {
+      if (mounted) setState(() => healthError = 'Service health is unavailable. Retry shortly.');
     }
   }
 
@@ -784,7 +796,8 @@ class _HomeState extends State<Home> {
 
   void goDestination(int value) {
     setState(() => destination = value);
-    if (value == 2) loadSaved();
+    if (value == 2) loadHealth();
+    if (value == 3) loadSaved();
   }
 
   @override
@@ -799,6 +812,8 @@ class _HomeState extends State<Home> {
             Expanded(child: feedBody()),
           ] else if (destination == 1)
             Expanded(child: explore())
+          else if (destination == 2)
+            Expanded(child: healthScreen())
           else
             Expanded(child: savedScreen()),
         ],
@@ -810,7 +825,7 @@ class _HomeState extends State<Home> {
       onDestinationSelected: goDestination,
       backgroundColor: cream,
       indicatorColor: soft,
-      destinations: const [
+      destinations: [
         NavigationDestination(
           icon: Icon(Icons.article_outlined),
           selectedIcon: Icon(Icons.article, color: clay),
@@ -820,6 +835,15 @@ class _HomeState extends State<Home> {
           icon: Icon(Icons.explore_outlined),
           selectedIcon: Icon(Icons.explore, color: clay),
           label: 'Explore',
+        ),
+        NavigationDestination(
+          icon: Badge(
+            isLabelVisible: (health?['active_count'] as int? ?? 0) > 0,
+            label: Text('${health?['active_count'] ?? 0}'),
+            child: const Icon(Icons.monitor_heart_outlined),
+          ),
+          selectedIcon: const Icon(Icons.monitor_heart, color: clay),
+          label: 'Health',
         ),
         NavigationDestination(
           icon: Icon(Icons.bookmark_outline),
@@ -1249,6 +1273,66 @@ class _HomeState extends State<Home> {
       ],
     ],
   );
+  Widget healthScreen() {
+    final incidents = records(health?['incidents']);
+    final providers = records(health?['providers']);
+    final offline = health?['offline'] == true;
+    final complete = health?['complete'] == true;
+    return RefreshIndicator(
+      onRefresh: loadHealth,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 20, 18, 90),
+        children: [
+          const Text('OFFICIAL SERVICE STATUS', style: TextStyle(color: clay, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2)),
+          const SizedBox(height: 7),
+          const Text('Service health', style: TextStyle(fontFamily: 'serif', fontSize: 32, color: ink)),
+          const SizedBox(height: 7),
+          const Text('Incidents reported by monitored providers. Check the official status page before acting.', style: TextStyle(color: muted, fontSize: 13)),
+          const SizedBox(height: 17),
+          if (healthError != null) Text(healthError!, style: const TextStyle(color: clay)),
+          Card(
+            color: incidents.isNotEmpty ? const Color(0xFFFFF2EB) : soft,
+            child: ListTile(
+              leading: const Icon(Icons.monitor_heart_outlined, color: clay),
+              title: Text(offline ? 'Live status unavailable offline' : incidents.isNotEmpty ? '${incidents.length} active ${incidents.length == 1 ? 'issue' : 'issues'} reported' : complete ? 'No active issues reported' : 'Status coverage incomplete', style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('From monitored official provider pages.'),
+            ),
+          ),
+          if (health != null && !offline) ...[
+            const SizedBox(height: 16),
+            if (incidents.isNotEmpty) const Text('Active issues', style: TextStyle(fontFamily: 'serif', fontSize: 22)),
+            ...incidents.map((incident) => Card(
+              margin: const EdgeInsets.only(top: 9),
+              child: Padding(
+                padding: const EdgeInsets.all(13),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${incident['provider']} · ${incident['status']}', style: const TextStyle(color: clay, fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Text('${incident['title']}', style: const TextStyle(fontFamily: 'serif', fontSize: 19)),
+                  if ('${incident['summary'] ?? ''}'.isNotEmpty) ...[const SizedBox(height: 6), Text('${incident['summary']}', style: const TextStyle(fontSize: 13))],
+                  TextButton(onPressed: () => openSource({'source_url': incident['url']}), child: const Text('View official status ↗')),
+                ]),
+              ),
+            )),
+            const SizedBox(height: 22),
+            const Text('Monitored providers', style: TextStyle(fontFamily: 'serif', fontSize: 22)),
+            ...providers.map((provider) => Card(
+              margin: const EdgeInsets.only(top: 8),
+              child: ListTile(
+                title: Text('${provider['name']}'),
+                subtitle: Text(provider['available'] == true ? '${provider['description']}' : 'Status temporarily unavailable'),
+                trailing: Icon(provider['indicator'] == 'none' ? Icons.check_circle_outline : Icons.error_outline, color: provider['indicator'] == 'none' ? Colors.green.shade700 : clay),
+                onTap: () => openSource({'source_url': provider['url']}),
+              ),
+            )),
+            const SizedBox(height: 16),
+            const Text('Public provider status may not reflect your account or region. This is separate from TechWatch source-fetch health.', style: TextStyle(fontSize: 11, color: muted)),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget savedScreen() => Column(
     children: [
       Padding(

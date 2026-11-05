@@ -11,6 +11,7 @@ from sqlalchemy import text
 from backend.db import Session, migrate
 from backend.data import fixture_items, TECHNOLOGIES, TOPICS, ROLES
 from backend.feed_selection import personal_feed, trending_feed
+from backend.service_health import service_snapshot
 from backend.pipeline import ingest
 from backend.engine import (seed_source, seed_rss_sources, published_items, review_queue, review_decision,
                             manual_recheck, edit_brief, source_health, configure_source, event_detail, draft_detail)
@@ -180,6 +181,10 @@ def public_source_health():
               for status in ('healthy', 'stale', 'error', 'pending', 'disabled', 'paused')}
     return {'checked_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
             'counts': counts, 'items': items}
+
+@app.get('/v1/service-health')
+def public_service_health():
+    return service_snapshot()
 
 def admin_guard(token: str | None):
     configured = os.getenv('ADMIN_TOKEN')

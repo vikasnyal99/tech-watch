@@ -18,6 +18,7 @@ from backend.special_sources import (parse_anthropic_news, article_excerpt,
                                      parse_kafka_blog, parse_mysql_tags)
 from backend.data import TECHNOLOGIES
 from backend.feed_selection import importance
+from backend.service_health import parse_status_page
 
 
 @pytest.fixture
@@ -268,6 +269,22 @@ def test_kafka_and_mysql_specialized_discovery():
     mysql = parse_mysql_tags(tags)
     assert len(mysql) == 1 and mysql[0].title == 'MySQL 9.7.0 source tag'
     assert mysql[0].kind == 'update'
+
+
+def test_public_status_page_incident_and_component_fallback():
+    base = 'https://www.githubstatus.com'
+    status = {'status': {'indicator': 'major', 'description': 'Partial outage'},
+              'components': [{'id': 'api', 'name': 'API', 'status': 'partial_outage'}],
+              'incidents': [{'id': 'abc', 'name': 'API delays', 'status': 'investigating',
+                             'impact': 'major', 'updated_at': '2026-11-05T10:00:00Z',
+                             'incident_updates': [{'body': 'Investigating API delays.'}]}]}
+    provider, incidents = parse_status_page('github', 'GitHub', base, status)
+    assert provider['indicator'] == 'major'
+    assert len(incidents) == 1 and incidents[0]['url'] == base + '/incidents/abc'
+    assert incidents[0]['summary'] == 'Investigating API delays.'
+    status['incidents'] = []
+    _, fallback = parse_status_page('github', 'GitHub', base, status)
+    assert len(fallback) == 1 and fallback[0]['title'] == 'API'
 
 
 def test_source_health_tracks_success_failure_and_recovery(isolated_db, monkeypatch):
