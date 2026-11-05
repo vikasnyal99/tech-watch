@@ -10,7 +10,7 @@ For the EC2 public preview, use [DEPLOYMENT.md](DEPLOYMENT.md) and the separate 
 
 The worker polls the [official source registry](docs/SOURCE_REGISTRY.md) hourly. The registry has 43 official sources, 42 enabled by default, plus a separate Python release parser. Open **Settings → Source health** to see which sources are healthy, delayed, failing, paused or disabled. Every real item enters a review queue before publication. See [implementation progress](docs/IMPLEMENTATION_PROGRESS.md) for review commands, verified behavior and current limitations.
 
-The **Health** bottom tab checks public Cloudflare, GitHub, and OpenAI status pages for active incidents and affected components. It shows an incident badge without taking space from the briefing card. Results are cached for three minutes, provider links remain available, and incomplete coverage is labeled explicitly. This is distinct from the feed collector's Source health page; public status does not determine account-specific impact.
+The **Health** bottom tab checks 14 official public status sources: AWS, Google Cloud, Azure, Cloudflare, Akamai, GitHub, npm, Vercel, MongoDB Cloud, HashiCorp, Grafana Cloud, DigitalOcean, OpenAI, and Claude/Anthropic. It shows a badge for current provider-reported impact without taking space from the briefing card. Results are cached for three minutes; failed checks are labeled explicitly. AWS, Google Cloud and Azure public reports can omit account-specific or limited regional issues. This is distinct from the feed collector's Source health page.
 
 ## Original handoff references
 

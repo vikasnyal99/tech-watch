@@ -18,7 +18,7 @@ from backend.special_sources import (parse_anthropic_news, article_excerpt,
                                      parse_kafka_blog, parse_mysql_tags)
 from backend.data import TECHNOLOGIES
 from backend.feed_selection import importance
-from backend.service_health import parse_status_page
+from backend.service_health import parse_status_page, parse_aws_events, parse_google_events, parse_azure_feed, PROVIDERS
 
 
 @pytest.fixture
@@ -285,6 +285,30 @@ def test_public_status_page_incident_and_component_fallback():
     status['incidents'] = []
     _, fallback = parse_status_page('github', 'GitHub', base, status)
     assert len(fallback) == 1 and fallback[0]['title'] == 'API'
+    status['status'] = {'indicator': 'none', 'description': 'All Systems Operational'}
+    _, stale_monitoring = parse_status_page('github', 'GitHub', base, status)
+    assert stale_monitoring == []
+
+
+def test_cloud_status_adapters_only_show_active_public_events():
+    aws, aws_incidents = parse_aws_events([
+        {'status': '3', 'service_name': 'EC2', 'region_name': 'Mumbai', 'event_log': []},
+        {'status': '2', 'service_name': 'S3', 'region_name': 'Mumbai', 'date': '1772369485',
+         'event_log': [{'timestamp': 1772369485, 'message': 'Elevated errors'}]},
+    ])
+    assert aws['indicator'] == 'major' and len(aws_incidents) == 1
+    assert 'S3' in aws_incidents[0]['title']
+    gcp, gcp_incidents = parse_google_events([
+        {'id': 'resolved', 'end': '2026-11-05T10:00:00Z'},
+        {'id': 'active', 'end': None, 'external_desc': 'Cloud SQL degraded',
+         'updates': [{'text': 'Investigating Cloud SQL'}]},
+    ])
+    assert gcp['indicator'] == 'major' and len(gcp_incidents) == 1
+    assert gcp_incidents[0]['url'].endswith('/active')
+    feed = '<rss version="2.0"><channel><title>Azure Status</title></channel></rss>'
+    azure, azure_incidents = parse_azure_feed(feed)
+    assert azure['indicator'] == 'none' and azure_incidents == []
+    assert {'aws', 'google-cloud', 'azure', 'akamai'}.issubset({p[0] for p in PROVIDERS})
 
 
 def test_source_health_tracks_success_failure_and_recovery(isolated_db, monkeypatch):

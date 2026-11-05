@@ -16,7 +16,11 @@ ALLOWED_HOSTS = {'www.python.org', 'kubernetes.io', 'github.blog', 'aws.amazon.c
                  'nextjs.org', 'www.hashicorp.com', 'www.docker.com',
                  'nodejs.org', 'www.anthropic.com', 'api.github.com', 'www.kernel.org',
                  'www.mongodb.com', 'kafka.apache.org', 'www.cloudflarestatus.com',
-                 'www.githubstatus.com', 'status.openai.com'}
+                 'www.githubstatus.com', 'status.openai.com', 'www.akamaistatus.com',
+                 'status.npmjs.org', 'www.vercel-status.com', 'status.mongodb.com',
+                 'status.hashicorp.com', 'status.claude.com', 'health.aws.amazon.com',
+                 'status.cloud.google.com', 'azure.status.microsoft',
+                 'status.grafana.com', 'status.digitalocean.com'}
 MAX_BYTES = 2_000_000
 
 
@@ -81,7 +85,9 @@ def fetch_html(url: str, *, etag: str | None = None, last_modified: str | None =
                     if total > MAX_BYTES:
                         raise ValueError('source response too large')
                     chunks.append(chunk)
-                return FetchResult(response.status_code, b''.join(chunks).decode('utf-8', errors='replace'),
+                payload = b''.join(chunks)
+                encoding = 'utf-16' if payload.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8'
+                return FetchResult(response.status_code, payload.decode(encoding, errors='replace'),
                                    response.headers.get('etag'), response.headers.get('last-modified'), current)
         raise ValueError('too many redirects')
     finally:
