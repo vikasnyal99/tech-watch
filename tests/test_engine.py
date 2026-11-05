@@ -13,6 +13,10 @@ import backend.main as main
 from backend.fetcher import check_url
 from backend.python_source import discover_releases, parse_release
 from backend.rss_source import parse_feed, score, canonical_url, SOURCES, DISABLED_BY_DEFAULT
+from backend.special_sources import (parse_anthropic_news, article_excerpt,
+                                     parse_github_advisories, parse_kernel_releases)
+from backend.data import TECHNOLOGIES
+from backend.feed_selection import importance
 
 
 @pytest.fixture
@@ -191,6 +195,65 @@ def test_offline_mode_never_fetches_live_sources(monkeypatch):
     monkeypatch.setenv('OFFLINE_MODE', '1')
     with pytest.raises(RuntimeError, match='offline mode'):
         pipeline.get_html({'adapter': 'rss'}, 'https://go.dev/blog/feed.atom', index=True)
+
+
+def test_new_sources_cover_catalog_and_ai_models_follow():
+    monitored = {source[1] for source in SOURCES}
+    assert set(TECHNOLOGIES) - monitored == {'AI models'}
+    item = {'technology': 'Anthropic', 'topic': 'AI models & APIs', 'score': 70,
+            'published_at': '2026-11-05', 'title': 'Claude release', 'summary': 'Official model update'}
+    assert main.personal_feed([item], main.Preferences(follows=['AI models'])) == [item]
+
+
+def test_article_only_node_feed_creates_source_backed_draft(isolated_db, monkeypatch):
+    feed = '''<rss><channel><item><title>Node.js security release</title>
+    <link>https://nodejs.org/en/blog/vulnerability/example</link>
+    <pubDate>Thu, 05 Nov 2026 09:00:00 GMT</pubDate></item></channel></rss>'''
+    article = '<main><h1>Node.js security release</h1><p>Node.js has published a security release for maintained branches. Applications should consult the release notes to identify the affected versions and fixes before upgrading their runtime.</p></main>'
+    pipeline.seed_rss_sources()
+    monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (
+        feed if kw.get('index') else article, 200, None, None))
+    pipeline.manual_recheck('node-security'); drain()
+    assert count(isolated_db, 'technology_releases') == 1
+    assert count(isolated_db, 'release_facts') == 1
+    assert not pipeline.published_items()
+    assert pipeline.review_queue()[0]['technology'] == 'Node.js'
+
+
+def test_anthropic_article_and_github_advisory_adapters(isolated_db, monkeypatch):
+    listing = '<a href="/news/claude-model-update"><h3>Claude model update</h3></a>'
+    article = '<article><p>Anthropic released a Claude model update with changes to the API and developer tooling. The official article explains availability, compatibility, and evaluation guidance for teams considering adoption.</p></article>'
+    advisory = '''[{"ghsa_id":"GHSA-aaaa-bbbb-cccc","html_url":"https://github.com/advisories/GHSA-aaaa-bbbb-cccc","summary":"A Python package allows unsafe deserialization","description":"The official advisory documents the conditions that allow unsafe deserialization and recommends upgrading after checking the affected version range.","severity":"high","published_at":"2026-11-05T08:00:00Z","vulnerabilities":[{"package":{"ecosystem":"pip","name":"sample-package"},"vulnerable_version_range":"< 2.0.0","first_patched_version":"2.0.0"}]}]'''
+    assert parse_anthropic_news(listing)[0].url.endswith('/news/claude-model-update')
+    assert 'developer tooling' in article_excerpt(article, 'anthropic-news')[0]
+    parsed = parse_github_advisories(advisory)
+    assert parsed[0].technology == 'Python' and 'First patched version: 2.0.0' in parsed[0].excerpt
+    assert importance({'title': parsed[0].title, 'summary': 'Unsafe deserialization',
+                       'type': parsed[0].kind, 'source_id': 'github-advisories'}) == 100
+    pipeline.seed_rss_sources()
+    def source_body(source, url, **kw):
+        if source['id'] == 'github-advisories':
+            return advisory, 200, None, None
+        return (listing if kw.get('index') else article), 200, None, None
+    monkeypatch.setattr(pipeline, 'get_html', source_body)
+    pipeline.manual_recheck('anthropic-news')
+    pipeline.manual_recheck('github-advisories')
+    drain()
+    assert count(isolated_db, 'technology_releases') == 2
+    assert not pipeline.published_items()
+    assert {x['technology'] for x in pipeline.review_queue()} == {'Anthropic', 'Python'}
+
+
+def test_kernel_feed_uses_unique_official_changelog_urls():
+    xml = '''<rss><channel><item><title>7.3.1: stable</title>
+    <link>https://www.kernel.org/</link><description><![CDATA[
+    <table><tr><th>Released:</th><td>2026-11-05</td></tr>
+    <tr><th>ChangeLog:</th><td><a href="https://cdn.kernel.org/pub/linux/kernel/v7.x/ChangeLog-7.3.1">ChangeLog-7.3.1</a></td></tr></table>]]></description></item>
+    <item><title>7.2.15: stable</title><link>https://www.kernel.org/</link><description><![CDATA[
+    <a href="https://cdn.kernel.org/pub/linux/kernel/v7.x/ChangeLog-7.2.15">ChangeLog-7.2.15</a>]]></description></item>
+    </channel></rss>'''
+    entries = parse_kernel_releases(xml)
+    assert len(entries) == 2 and entries[0].url != entries[1].url
 
 
 def test_source_health_tracks_success_failure_and_recovery(isolated_db, monkeypatch):

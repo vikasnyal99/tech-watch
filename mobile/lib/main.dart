@@ -213,6 +213,12 @@ Widget techMark(String label, {double size = 25}) {
     'postgresql': 'postgresql',
     'redis': 'redis',
     'grafana': 'grafana',
+    'fastapi': 'fastapi',
+    'vue': 'vuedotjs',
+    'terraform': 'terraform',
+    'laravel': 'laravel',
+    'elasticsearch': 'elasticsearch',
+    'linux': 'linux',
   };
   final brand = brands[label.toLowerCase()];
   if (brand != null) {

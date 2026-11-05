@@ -1,6 +1,6 @@
 # Official feed registry
 
-29 configured official RSS/Atom feeds; 28 enabled by default. The Python downloads parser is a separate source and remains disabled by default.
+40 configured official sources: RSS/Atom feeds, Anthropic's newsroom pages, and GitHub's reviewed advisory API. Thirty-nine are enabled by default; Docker remains disabled. The Python downloads parser is a separate source and remains disabled by default, although an operator can enable it.
 
 | Technology | Feed | Default |
 |---|---|---|
@@ -33,9 +33,18 @@
 | Next.js | [nextjs-blog](https://nextjs.org/feed.xml) | Enabled |
 | HashiCorp | [hashicorp-blog](https://www.hashicorp.com/blog/feed.xml) | Enabled |
 | Docker | [docker-blog](https://www.docker.com/feed/) | Disabled: intermittent TLS |
+| Node.js | [node-blog](https://nodejs.org/en/feed/blog.xml), [node-security](https://nodejs.org/en/feed/vulnerability.xml) | Enabled; fetches linked articles because these feeds omit descriptions |
+| Anthropic | [anthropic-news](https://www.anthropic.com/news), [anthropic-models](https://www.anthropic.com/news/models) | Enabled; extracts linked articles |
+| FastAPI | [fastapi-releases](https://github.com/fastapi/fastapi/releases.atom) | Enabled |
+| Vue | [vue-releases](https://github.com/vuejs/core/releases.atom) | Enabled |
+| Terraform | [terraform-releases](https://github.com/hashicorp/terraform/releases.atom) | Enabled |
+| Laravel | [laravel-releases](https://github.com/laravel/framework/releases.atom) | Enabled |
+| Elasticsearch | [elasticsearch-releases](https://github.com/elastic/elasticsearch/releases.atom) | Enabled |
+| Linux | [linux-releases](https://www.kernel.org/feeds/kdist.xml) | Enabled |
+| Security advisories | [GitHub reviewed advisories](https://docs.github.com/en/rest/security-advisories/global-advisories) | Enabled; high and critical advisories only, with package and patched version retained |
 
 ## Ingestion and publication
 
-The worker polls enabled sources hourly with size, timeout, HTTPS and host limits. It retains a bounded feed response when changed, parses source titles, dates, links and up to 4,000 characters of feed-provided description/content, rejects off-host article links unless explicitly allowed, deduplicates canonical URLs and same-day matching titles, and ranks drafts. A human reviews the source excerpt, edits one-screen copy, and publishes or rejects each draft. The card links to the original publisher. RSS excerpts are evidence of what the publisher posted; they are not an independent verification of product impact, affected versions or mitigations.
+The worker polls enabled sources hourly with size, timeout, HTTPS and host limits. It retains a bounded response when changed, extracts titles, dates, links and up to 4,000 characters of source text, rejects off-host article links unless explicitly allowed, deduplicates canonical URLs and same-day matching titles, and ranks drafts. Node.js and Anthropic article fetches run as separate bounded jobs. GitHub reviewed advisories include package ecosystem, affected range and first patched version where supplied by the API. A human reviews the source excerpt, edits one-screen copy, and publishes or rejects each draft. The card links to the original publisher. Source excerpts are evidence of what the publisher posted; they are not independent verification of user impact.
 
-The normal Feed shows reviewed live items matching the installation's selected topics and followed technologies; role interests apply when neither is selected. Trending selects broadly significant reviewed stories independently of those interests. Fictional fixtures appear only when no live items exist or `?demo=true` is passed to the feed API. Docker is registered but disabled because TLS handshakes were intermittent in this environment. Node.js publishes an official feed without item descriptions, so it needs an article-page adapter before it can generate useful briefings. React is sourced from the project’s GitHub releases feed.
+The normal Feed shows reviewed live items matching the installation's selected topics and followed technologies; role interests apply when neither is selected. Following “AI models” matches the AI models & APIs topic across providers. Trending selects broadly significant reviewed stories independently of those interests. Fictional fixtures appear only when no live items exist or `?demo=true` is passed to the feed API. Docker is registered but disabled because TLS handshakes were intermittent in this environment. React and several other projects are sourced from their official GitHub releases feeds. New discoveries remain drafts until review; source count is not the number of published cards. Service incident monitoring is a separate proposed feature and is not covered by these announcement feeds.

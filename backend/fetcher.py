@@ -13,7 +13,8 @@ ALLOWED_HOSTS = {'www.python.org', 'kubernetes.io', 'github.blog', 'aws.amazon.c
                  'www.djangoproject.com', 'www.php.net', 'blog.rust-lang.org',
                  'www.ruby-lang.org', 'devblogs.microsoft.com', 'redis.io', 'grafana.com',
                  'blog.jetbrains.com', 'www.swift.org', 'spring.io', 'blog.angular.dev',
-                 'nextjs.org', 'www.hashicorp.com', 'www.docker.com'}
+                 'nextjs.org', 'www.hashicorp.com', 'www.docker.com',
+                 'nodejs.org', 'www.anthropic.com', 'api.github.com', 'www.kernel.org'}
 MAX_BYTES = 2_000_000
 
 
@@ -69,7 +70,7 @@ def fetch_html(url: str, *, etag: str | None = None, last_modified: str | None =
                     return FetchResult(304, None, etag, last_modified, current)
                 response.raise_for_status()
                 content_type = response.headers.get('content-type', '').lower()
-                if not any(kind in content_type for kind in ('text/html', 'xml', 'rss', 'atom', 'application/octet-stream')):
+                if not any(kind in content_type for kind in ('text/html', 'xml', 'rss', 'atom', 'application/json', 'application/octet-stream')):
                     raise ValueError('source did not return a supported feed or HTML')
                 chunks = []
                 total = 0

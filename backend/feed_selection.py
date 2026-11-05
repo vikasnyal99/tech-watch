@@ -57,7 +57,8 @@ def personal_feed(items: list[dict], preferences, today: date | None = None) -> 
     follows = set(preferences.follows)
     topics = set(preferences.topics)
     if follows or topics:
-        selected = [item for item in items if item['technology'] in follows or item['topic'] in topics]
+        selected = [item for item in items if item['technology'] in follows or item['topic'] in topics
+                    or ('AI models' in follows and item['topic'] == 'AI models & APIs')]
     else:
         role_topics = set().union(*(ROLE_TOPICS.get(role, set()) for role in preferences.roles))
         selected = [item for item in items if item['topic'] in role_topics] if role_topics else items
@@ -72,7 +73,7 @@ def personal_feed(items: list[dict], preferences, today: date | None = None) -> 
 
 def importance(item: dict) -> int:
     text = f"{item['title']} {item['summary']}"
-    if SECURITY.search(text):
+    if item.get('source_id') == 'github-advisories' or SECURITY.search(text):
         return 100
     if item['type'] == 'deprecation' or BREAKING.search(text):
         return 85

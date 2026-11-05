@@ -112,7 +112,8 @@ def feed(section: str = Query('feed', pattern='^(feed|stack|trending|ai)$'), top
     preferences = prefs(ident)
     if section == 'stack':
         follows = set(preferences.follows)
-        items = [i for i in items if i['technology'] in follows]
+        items = [i for i in items if i['technology'] in follows
+                 or ('AI models' in follows and i['topic'] == 'AI models & APIs')]
     elif section == 'ai':
         items = [i for i in items if ai_relevant(i)]
     elif section == 'trending':

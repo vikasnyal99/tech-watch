@@ -12,7 +12,10 @@ from backend.db import Session, engine
 from backend.briefing_copy import validate_briefing_copy
 from backend.fetcher import fetch_html
 from backend.python_source import discover_releases, parse_release
-from backend.rss_source import SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, parse_feed
+from backend.rss_source import (SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, SOURCE_ADAPTERS,
+                                ARTICLE_FEEDS, RELEASE_FEEDS, Entry, parse_feed)
+from backend.special_sources import (parse_anthropic_news, article_excerpt,
+                                     parse_github_advisories, parse_kernel_releases)
 
 FIXTURE_DIR = Path(__file__).parents[1] / 'fixtures' / 'python_source'
 
@@ -49,7 +52,8 @@ def seed_rss_sources():
         for source_id, technology, url, _topic in SOURCES:
             db.execute(text('INSERT INTO technology_sources (id,technology,url,adapter,enabled,interval_seconds,next_due_at,created_at,updated_at) '
                             'VALUES (:id,:technology,:url,:adapter,:enabled,3600,:due,:stamp,:stamp) ON CONFLICT(id) DO NOTHING'),
-                       {'id': source_id, 'technology': technology, 'url': url, 'adapter': 'rss',
+                       {'id': source_id, 'technology': technology, 'url': url,
+                        'adapter': SOURCE_ADAPTERS.get(source_id, 'rss'),
                         'enabled': int(source_id not in DISABLED_BY_DEFAULT), 'due': stamp, 'stamp': stamp})
 
 
@@ -133,8 +137,8 @@ def source_record(source_id: str):
 def source_health():
     with Session() as db:
         data = rows(db.execute(text('SELECT s.id,s.technology,s.url,s.adapter,s.enabled,s.interval_seconds,s.next_due_at,s.last_error,s.updated_at, '
-                                    '(SELECT MAX(f.fetched_at) FROM source_fetches f WHERE f.source_id=s.id) last_attempt_at, '
-                                    '(SELECT MAX(f.fetched_at) FROM source_fetches f WHERE f.source_id=s.id AND f.status_code IN (200,304)) last_success_at '
+                                    '(SELECT MAX(f.fetched_at) FROM source_fetches f WHERE f.source_id=s.id AND f.url=s.url) last_attempt_at, '
+                                    '(SELECT MAX(f.fetched_at) FROM source_fetches f WHERE f.source_id=s.id AND f.url=s.url AND f.status_code IN (200,304)) last_success_at '
                                     'FROM technology_sources s ORDER BY s.id')))
     stamp = datetime.now(timezone.utc)
     for source in data:
@@ -175,7 +179,7 @@ def get_html(source: dict, url: str, *, index=False):
         return path.read_text(), 200, None, None
     if os.getenv('OFFLINE_MODE') == '1':
         raise RuntimeError('live source fetching is disabled in offline mode')
-    if source['adapter'] not in ('python_downloads', 'rss'):
+    if source['adapter'] not in ('python_downloads', 'rss', 'news_html', 'ghsa'):
         raise ValueError('unsupported source adapter')
     result = fetch_html(url, etag=source['etag'] if index else None,
                         last_modified=source['last_modified'] if index else None)
@@ -192,7 +196,7 @@ def record_fetch(db, source_id: str, url: str, status: int | None, digest: str |
 
 def process_index(job: dict):
     source = source_record(job['payload']['source_id'])
-    if source['adapter'] == 'rss':
+    if source['adapter'] in ('rss', 'news_html', 'ghsa'):
         return process_rss_index(job, source)
     body, status, etag, modified = get_html(source, source['url'], index=True)
     if status == 304:
@@ -242,47 +246,83 @@ def process_rss_index(job: dict, source: dict):
             db.execute(text('UPDATE technology_sources SET etag=:etag,last_modified=:modified,last_error=NULL,updated_at=:stamp WHERE id=:id'),
                        {'etag': etag, 'modified': modified, 'stamp': stamp, 'id': source['id']})
         return
-    entries = parse_feed(body, source['url'], allowed_hosts=ENTRY_HOSTS.get(source['id']))
+    if source['adapter'] == 'ghsa':
+        entries = parse_github_advisories(body)
+    elif source['adapter'] == 'news_html':
+        entries = parse_anthropic_news(body)
+    elif source['id'] == 'linux-releases':
+        entries = parse_kernel_releases(body)
+    else:
+        entries = parse_feed(body, source['url'], allowed_hosts=ENTRY_HOSTS.get(source['id']),
+                             allow_missing_excerpt=source['id'] in ARTICLE_FEEDS,
+                             force_release=source['id'] in RELEASE_FEEDS)
     with Session.begin() as db:
         record_fetch(db, source['id'], source['url'], status, digest, body=body)
         db.execute(text('UPDATE technology_sources SET etag=:etag,last_modified=:modified,last_hash=:digest,last_error=NULL,updated_at=:stamp WHERE id=:id'),
                    {'etag': etag, 'modified': modified, 'digest': digest, 'stamp': stamp, 'id': source['id']})
-        for entry in entries:
-            existing = db.execute(text('SELECT * FROM technology_releases WHERE canonical_url=:url'),
-                                  {'url': entry.url}).mappings().first()
-            entry_hash = sha256((entry.title + '\n' + entry.excerpt).encode()).hexdigest()
-            if existing and existing['latest_hash'] == entry_hash:
+        if source['id'] in ARTICLE_FEEDS:
+            for entry in entries:
+                enqueue(db, 'fetch-article', {'source_id': source['id'], 'title': entry.title,
+                                               'url': entry.url, 'published_at': entry.published_at,
+                                               'kind': entry.kind, 'score': entry.score},
+                        f"article:{source['id']}:{entry.key}:{digest}")
+        else:
+            store_entries(db, source, entries, stamp)
+
+
+def process_article(job: dict):
+    payload = job['payload']
+    source = source_record(payload['source_id'])
+    body, status, _, _ = get_html(source, payload['url'])
+    if not body or status != 200:
+        raise ValueError('article unavailable')
+    excerpt, article_date = article_excerpt(body, source['id'])
+    entry = Entry(sha256(payload['url'].encode()).hexdigest()[:24], payload['title'], payload['url'],
+                  excerpt, payload['published_at'] or article_date, payload['kind'], payload['score'])
+    with Session.begin() as db:
+        record_fetch(db, source['id'], payload['url'], status, sha256(body.encode()).hexdigest(), body=body)
+        store_entries(db, source, [entry], now())
+
+
+def store_entries(db, source: dict, entries: list[Entry], stamp: str):
+    for entry in entries:
+        existing = db.execute(text('SELECT * FROM technology_releases WHERE canonical_url=:url'),
+                              {'url': entry.url}).mappings().first()
+        entry_hash = sha256((entry.title + '\n' + entry.excerpt).encode()).hexdigest()
+        if existing and existing['latest_hash'] == entry_hash:
+            continue
+        if not existing:
+            # A second official feed can syndicate the same story under a different URL.
+            normalized = re.sub(r'[^a-z0-9]+', ' ', entry.title.casefold()).strip()
+            candidate = db.execute(text("SELECT r.id,v.raw_text FROM technology_releases r JOIN release_revisions v ON v.release_id=r.id "
+                                        "WHERE r.published_at=:published AND r.version LIKE 'rss-%'"),
+                                   {'published': entry.published_at}).mappings().all()
+            if any(re.sub(r'[^a-z0-9]+', ' ', x['raw_text'].split('\n', 1)[0].casefold()).strip() == normalized for x in candidate):
                 continue
-            if not existing:
-                # A second official feed can syndicate the same story under a different URL.
-                normalized = re.sub(r'[^a-z0-9]+', ' ', entry.title.casefold()).strip()
-                candidate = db.execute(text("SELECT r.id,v.raw_text FROM technology_releases r JOIN release_revisions v ON v.release_id=r.id "
-                                            "WHERE r.published_at=:published AND r.version LIKE 'rss-%'"),
-                                       {'published': entry.published_at}).mappings().all()
-                if any(re.sub(r'[^a-z0-9]+', ' ', x['raw_text'].split('\n', 1)[0].casefold()).strip() == normalized for x in candidate):
-                    continue
-                release_id = uid()
-                db.execute(text('INSERT INTO technology_releases (id,technology,version,source_id,canonical_url,release_type,published_at,latest_hash,created_at,updated_at) '
-                                'VALUES (:id,:technology,:version,:source,:url,:kind,:published,:digest,:stamp,:stamp)'),
-                           {'id': release_id, 'technology': source['technology'], 'version': f'rss-{entry.key}',
-                            'source': source['id'], 'url': entry.url, 'kind': entry.kind,
-                            'published': entry.published_at, 'digest': entry_hash, 'stamp': stamp})
-            else:
-                release_id = existing['id']
-                db.execute(text('UPDATE technology_releases SET latest_hash=:digest,release_type=:kind,published_at=:published,updated_at=:stamp WHERE id=:id'),
-                           {'digest': entry_hash, 'kind': entry.kind, 'published': entry.published_at,
-                            'stamp': stamp, 'id': release_id})
-            revision_id = uid()
-            db.execute(text('INSERT INTO release_revisions (id,release_id,content_hash,raw_text,created_at) '
-                            'VALUES (:id,:release,:digest,:raw,:stamp)'),
-                       {'id': revision_id, 'release': release_id, 'digest': entry_hash,
-                        'raw': entry.title + '\n' + entry.excerpt, 'stamp': stamp})
-            db.execute(text('INSERT INTO release_facts (id,revision_id,kind,description,evidence_excerpt,evidence_url,confidence) '
-                            'VALUES (:id,:revision,:kind,:description,:excerpt,:url,:confidence)'),
-                       {'id': uid(), 'revision': revision_id, 'kind': entry.kind, 'description': entry.excerpt,
-                        'excerpt': entry.excerpt, 'url': entry.url, 'confidence': 'official_feed_excerpt'})
-            enqueue(db, 'generate-rss-brief', {'revision_id': revision_id, 'source_id': source['id'],
-                                                'title': entry.title, 'score': entry.score}, f'rss-brief:{revision_id}')
+            release_id = uid()
+            db.execute(text('INSERT INTO technology_releases (id,technology,version,source_id,canonical_url,release_type,published_at,latest_hash,created_at,updated_at) '
+                            'VALUES (:id,:technology,:version,:source,:url,:kind,:published,:digest,:stamp,:stamp)'),
+                       {'id': release_id, 'technology': entry.technology or source['technology'], 'version': f'rss-{entry.key}',
+                        'source': source['id'], 'url': entry.url, 'kind': entry.kind,
+                        'published': entry.published_at, 'digest': entry_hash, 'stamp': stamp})
+        else:
+            release_id = existing['id']
+            db.execute(text('UPDATE technology_releases SET latest_hash=:digest,release_type=:kind,published_at=:published,technology=:technology,updated_at=:stamp WHERE id=:id'),
+                       {'digest': entry_hash, 'kind': entry.kind, 'published': entry.published_at,
+                        'technology': entry.technology or source['technology'],
+                        'stamp': stamp, 'id': release_id})
+        revision_id = uid()
+        db.execute(text('INSERT INTO release_revisions (id,release_id,content_hash,raw_text,created_at) '
+                        'VALUES (:id,:release,:digest,:raw,:stamp)'),
+                   {'id': revision_id, 'release': release_id, 'digest': entry_hash,
+                    'raw': entry.title + '\n' + entry.excerpt, 'stamp': stamp})
+        db.execute(text('INSERT INTO release_facts (id,revision_id,kind,description,evidence_excerpt,evidence_url,confidence) '
+                        'VALUES (:id,:revision,:kind,:description,:excerpt,:url,:confidence)'),
+                   {'id': uid(), 'revision': revision_id, 'kind': entry.kind, 'description': entry.excerpt,
+                    'excerpt': entry.excerpt, 'url': entry.url,
+                    'confidence': 'official_advisory' if source['adapter'] == 'ghsa' else 'official_source_excerpt'})
+        enqueue(db, 'generate-rss-brief', {'revision_id': revision_id, 'source_id': source['id'],
+                                            'title': entry.title, 'score': entry.score}, f'rss-brief:{revision_id}')
 
 
 def process_rss_brief(job: dict):
@@ -302,7 +342,9 @@ def process_rss_brief(job: dict):
                    {'id': uid(), 'release': row['release_id'], 'revision': payload['revision_id'],
                     'title': copy['title'], 'summary': copy['summary'], 'why': copy['why_it_matters'],
                     'action': copy['next_action'], 'score': payload['score'], 'status': status,
-                    'label': f"{row['technology']} official feed", 'url': row['canonical_url'], 'stamp': now()})
+                    'label': ('GitHub reviewed advisory' if payload['source_id'] == 'github-advisories'
+                              else f"{row['technology']} official source"),
+                    'url': row['canonical_url'], 'stamp': now()})
 
 
 def process_release(job: dict):
@@ -400,7 +442,8 @@ def run_once():
     if not job:
         return False
     try:
-        {'fetch-index': process_index, 'fetch-release': process_release, 'generate-brief': process_brief,
+        {'fetch-index': process_index, 'fetch-release': process_release, 'fetch-article': process_article,
+         'generate-brief': process_brief,
          'generate-rss-brief': process_rss_brief}[job['kind']](job)
         finish_job(job['id'])
     except Exception as error:
@@ -414,7 +457,7 @@ def published_items():
                                     "JOIN technology_releases r ON r.id=b.release_id WHERE b.status='published' "
                                     'ORDER BY b.score DESC,b.created_at DESC LIMIT 150')))
     return [
-        {'id': x['id'], 'type': x['release_type'], 'technology': x['technology'], 'title': x['title'],
+        {'id': x['id'], 'type': x['release_type'], 'technology': x['technology'], 'source_id': x['source_id'], 'title': x['title'],
          'summary': x['summary'], 'why_it_matters': x['why_it_matters'], 'next_action': x['next_action'],
          'source_label': x['source_label'], 'source_url': x['source_url'], 'fictional': bool(x['fictional']),
          'topic': next((s[3] for s in SOURCES if s[0] == x['source_id']), 'Backend & APIs'), 'published_at': x['published_at'], 'updated_at': x['updated_at'],

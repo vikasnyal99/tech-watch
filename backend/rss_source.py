@@ -40,12 +40,30 @@ SOURCES = (
     ('nextjs-blog', 'Next.js', 'https://nextjs.org/feed.xml', 'Frontend & Web'),
     ('hashicorp-blog', 'HashiCorp', 'https://www.hashicorp.com/blog/feed.xml', 'Cloud infrastructure'),
     ('docker-blog', 'Docker', 'https://www.docker.com/feed/', 'Kubernetes & containers'),
+    ('node-blog', 'Node.js', 'https://nodejs.org/en/feed/blog.xml', 'Backend & APIs'),
+    ('node-security', 'Node.js', 'https://nodejs.org/en/feed/vulnerability.xml', 'Security'),
+    ('anthropic-news', 'Anthropic', 'https://www.anthropic.com/news', 'AI models & APIs'),
+    ('anthropic-models', 'Anthropic', 'https://www.anthropic.com/news/models', 'AI models & APIs'),
+    ('fastapi-releases', 'FastAPI', 'https://github.com/fastapi/fastapi/releases.atom', 'Backend & APIs'),
+    ('vue-releases', 'Vue', 'https://github.com/vuejs/core/releases.atom', 'Frontend & Web'),
+    ('terraform-releases', 'Terraform', 'https://github.com/hashicorp/terraform/releases.atom', 'Cloud infrastructure'),
+    ('laravel-releases', 'Laravel', 'https://github.com/laravel/framework/releases.atom', 'Backend & APIs'),
+    ('elasticsearch-releases', 'Elasticsearch', 'https://github.com/elastic/elasticsearch/releases.atom', 'Data & databases'),
+    ('linux-releases', 'Linux', 'https://www.kernel.org/feeds/kdist.xml', 'Cloud infrastructure'),
+    ('github-advisories', 'Security advisories', 'https://api.github.com/advisories?type=reviewed&sort=updated&per_page=50', 'Security'),
 )
 
 ENTRY_HOSTS = {
     'gcp-blog': {'cloud.google.com'},
     'akamai-blog': {'www.akamai.com'},
+    'github-advisories': {'github.com'},
 }
+
+SOURCE_ADAPTERS = {'anthropic-news': 'news_html', 'anthropic-models': 'news_html',
+                   'github-advisories': 'ghsa'}
+ARTICLE_FEEDS = {'node-blog', 'node-security', 'anthropic-news', 'anthropic-models'}
+RELEASE_FEEDS = {'fastapi-releases', 'vue-releases', 'terraform-releases', 'laravel-releases',
+                 'elasticsearch-releases', 'linux-releases'}
 
 # This endpoint alternates between valid responses and TLS handshake failures here.
 DISABLED_BY_DEFAULT = {'docker-blog'}
@@ -60,6 +78,7 @@ class Entry:
     published_at: str | None
     kind: str
     score: int
+    technology: str | None = None
 
 
 def clean(value: str) -> str:
@@ -97,7 +116,8 @@ def score(title: str, kind: str, published: str | None, stamp: datetime | None =
     return max(0, min(100, value))
 
 
-def parse_feed(xml: str, feed_url: str, limit: int = 12, allowed_hosts: set[str] | None = None) -> list[Entry]:
+def parse_feed(xml: str, feed_url: str, limit: int = 12, allowed_hosts: set[str] | None = None,
+               allow_missing_excerpt: bool = False, force_release: bool = False) -> list[Entry]:
     parsed = feedparser.parse(xml)
     if parsed.bozo and not parsed.entries:
         raise ValueError('invalid RSS or Atom feed')
@@ -109,7 +129,7 @@ def parse_feed(xml: str, feed_url: str, limit: int = 12, allowed_hosts: set[str]
         title = clean(item.get('title', ''))
         url = canonical_url(item.get('link', ''), feed_url, allowed_hosts)
         excerpt = clean(item.get('summary', '') or item.get('description', ''))
-        if not title or not url or not excerpt or url in seen:
+        if not title or not url or (not excerpt and not allow_missing_excerpt) or url in seen:
             continue
         published = None
         for key in ('published', 'updated'):
@@ -124,7 +144,7 @@ def parse_feed(xml: str, feed_url: str, limit: int = 12, allowed_hosts: set[str]
                 if item.get(key):
                     published = datetime(*item[key][:3], tzinfo=timezone.utc).date().isoformat()
                     break
-        kind = classify(title)
+        kind = 'release' if force_release else classify(title)
         accepted.append(Entry(sha256(url.encode()).hexdigest()[:24], title[:500], url,
                               excerpt[:4000], published, kind, score(title, kind, published)))
         seen.add(url)
