@@ -30,5 +30,13 @@
     "summary": "GitHub's reviewed advisory GHSA-phg3-3g28-wq9v describes a high-severity login CSRF issue in Hatchet's OAuth callback. The advisory lists Go package versions below 0.91.1 as affected and 0.91.1 as patched. It says an empty OAuth state value could be accepted after a prior successful flow, potentially binding an authenticated session to an attacker-controlled OAuth identity. Impact depends on an enabled Google, GitHub, or Slack integration and a prior OAuth flow in that session.",
     "why_it_matters": "Affected OAuth deployments may permit account takeover through session binding.",
     "next_action": "Check your Hatchet version and OAuth integrations; review the advisory and update to 0.91.1."
+  },
+  {
+    "id": "aac17f40f9c140d3bf2363b10f6b6c2d",
+    "source_url": "https://www.anthropic.com/news/claude-opus-5",
+    "title": "Anthropic makes Claude Opus 5 available",
+    "summary": "Anthropic introduced Claude Opus 5 for its apps and the Claude API under the model name claude-opus-5. The company reports improvements over Opus 4.8 on coding, agent, and knowledge-work evaluations while keeping the same base API price. A Fast mode is offered at roughly 2.5 times the default speed and twice the base price. These are provider-reported gains; teams should test quality, latency, and cost on their own workloads before switching production models.",
+    "why_it_matters": "AI teams have another model option with different speed and cost trade-offs.",
+    "next_action": "Run representative API tasks and compare quality, latency, and cost with your current model."
   }
 ]
