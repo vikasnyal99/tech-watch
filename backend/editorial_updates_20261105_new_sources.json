@@ -1,0 +1,34 @@
+[
+  {
+    "id": "f4b53ecffd704f63b3701d809853c993",
+    "source_url": "https://nodejs.org/en/blog/release/v26.13.0",
+    "title": "Node.js 26 enters long-term support",
+    "summary": "Node.js 26.13.0 moves the 26.x line into Long Term Support under the Lithium codename. The project says it will receive updates until the end of April 2029. This release changes LTS metadata, including process.release, but contains no other code changes compared with 26.12.1. Teams moving from Node.js 24, 22, or earlier should also note that official Linux binaries since Node.js 25 link against libatomic, which some distributions may need installed separately.",
+    "why_it_matters": "Teams planning their next Node.js baseline can now evaluate 26.x as an LTS line.",
+    "next_action": "Check runtime compatibility and libatomic availability before moving workloads to Node.js 26."
+  },
+  {
+    "id": "fed82a0a9875448b9ed67e4346fc9a04",
+    "source_url": "https://github.com/fastapi/fastapi/releases/tag/0.162.0",
+    "title": "FastAPI 0.162.0 fixes omitted boolean forms",
+    "summary": "FastAPI 0.162.0 changes how omitted boolean form fields are handled. An absent bool or bool | None field now uses its declared default or raises a missing-field error, instead of being inferred as False. This covers standalone form parameters, form models, and unions. Omitted fields are excluded from model_dump(exclude_unset=True), which can change union selection. For HTML checkboxes, declare False when that is the intended default.",
+    "why_it_matters": "Form handlers that relied on implicit False may validate or serialize requests differently.",
+    "next_action": "Test omitted checkboxes and form unions; declare explicit defaults where intended."
+  },
+  {
+    "id": "a21124aaf4d442568bb82acdbbc83c1d",
+    "source_url": "https://github.com/hashicorp/terraform/releases/tag/v1.17.1",
+    "title": "Terraform 1.17.1 fixes policy and file handling",
+    "summary": "Terraform 1.17.1 is a bug-fix release. The release notes say fmt now preserves the original file content if writing the formatted result fails. Terraform also evaluates module policies during destroy plans and reports every policy result for a replaced resource in Stacks rather than only one. These fixes affect error recovery and policy visibility; the release notes do not describe a new language feature or a general change to all plans.",
+    "why_it_matters": "Teams using policy checks or automated fmt can verify the corrected behavior.",
+    "next_action": "Test 1.17.1 against representative destroy plans and fmt failure cases."
+  },
+  {
+    "id": "99881dda0a86440093b073702c8da2f4",
+    "source_url": "https://github.com/advisories/GHSA-phg3-3g28-wq9v",
+    "title": "Hatchet OAuth callback CSRF fixed in 0.91.1",
+    "summary": "GitHub's reviewed advisory GHSA-phg3-3g28-wq9v describes a high-severity login CSRF issue in Hatchet's OAuth callback. The advisory lists Go package versions below 0.91.1 as affected and 0.91.1 as patched. It says an empty OAuth state value could be accepted after a prior successful flow, potentially binding an authenticated session to an attacker-controlled OAuth identity. Impact depends on an enabled Google, GitHub, or Slack integration and a prior OAuth flow in that session.",
+    "why_it_matters": "Affected OAuth deployments may permit account takeover through session binding.",
+    "next_action": "Check your Hatchet version and OAuth integrations; review the advisory and update to 0.91.1."
+  }
+]

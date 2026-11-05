@@ -17,3 +17,12 @@ def test_expanded_live_briefings_keep_source_identity_and_fit_card_budget():
         assert item['summary'].startswith(old['summary'])
         assert len(item['summary']) >= len(old['summary']) + 100
         assert not validate_briefing_copy(item)
+
+
+def test_new_source_editorial_batch_is_source_linked_and_fits():
+    root = Path(__file__).parents[1] / 'backend'
+    items = json.loads((root / 'editorial_updates_20261105_new_sources.json').read_text())
+    assert len(items) == 4
+    assert len({item['source_url'] for item in items}) == 4
+    assert all(item['source_url'].startswith('https://') and not validate_briefing_copy(item)
+               for item in items)
