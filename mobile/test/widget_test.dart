@@ -32,7 +32,7 @@ void main() {
       'type': 'release',
       'technology': 'Kubernetes',
       'title': 'Kubernetes release: what platform teams should review',
-      'summary': 'This release changes supported versions and removes older APIs used by some workloads. Platform teams should review upgrade prerequisites, check add-on compatibility, and compare cluster behavior with the official release notes before rollout. The rollout plan should account for control plane, node, networking and storage components.',
+      'summary': 'This release changes supported versions and removes older APIs used by some workloads. Platform teams should review upgrade prerequisites, check add-on compatibility, and compare cluster behavior with the official release notes before rollout. The rollout plan should account for control plane, node, networking and storage components. The release notes should identify the exact affected APIs and the supported version path so the team can stage the upgrade and check workloads before production.',
       'why_it_matters': 'Clusters and add-ons using removed APIs may need changes before a safe upgrade.',
       'next_action': 'Inventory API usage and test the upgrade in a non-production cluster.',
       'source_label': 'Official Kubernetes release notes',

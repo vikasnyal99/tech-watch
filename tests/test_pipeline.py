@@ -1,7 +1,7 @@
 from backend.pipeline import ingest, validate_candidate, url_allowed
 
 def base(**changes):
-    x=dict(source_id='fixture', external_id='release-1', title='Example release', summary='This fictional release changes Kubernetes compatibility and upgrade behavior; teams should compare supported versions with their planned cluster changes.', why_it_matters='Teams may need to review compatibility.', next_action='Check official release notes.', technology='Kubernetes', type='release', evidence={})
+    x=dict(source_id='fixture', external_id='release-1', title='Example release', summary='This fictional release changes Kubernetes compatibility and upgrade behavior; teams should compare supported versions with their planned cluster changes. The example also explains how to check add-on support, review removed APIs, and test the upgrade path before production rollout.', why_it_matters='Teams may need to review compatibility.', next_action='Check official release notes.', technology='Kubernetes', type='release', evidence={})
     return x | changes
 
 def test_duplicates_merge_but_distinct_releases_survive():
@@ -20,15 +20,15 @@ def test_source_url_allowlist():
     assert not url_allowed('https://example.org.evil.test/', 'example.org')
 
 def test_overlong_card_copy_is_held_without_truncation():
-    candidate = base(summary='A' * 361)
+    candidate = base(summary='A' * 511)
     accepted, held = ingest([candidate])
     assert not accepted
-    assert 'summary exceeds 360 characters' in held[0]['errors']
+    assert 'summary exceeds 510 characters' in held[0]['errors']
     assert held[0]['candidate']['summary'] == candidate['summary']
 
 
 def test_longer_source_backed_summary_fits_editorial_budget():
-    candidate = base(summary=('A detailed, source-backed update. ' * 10).strip())
+    candidate = base(summary=('A detailed, source-backed update. ' * 12).strip())
     accepted, held = ingest([candidate])
     assert accepted and not held
 

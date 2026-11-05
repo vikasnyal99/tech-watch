@@ -54,4 +54,5 @@
   .media-info{min-height:30px;padding:3px 7px;font-size:10px}.media-info-i{width:20px;height:20px;font-size:14px}
 }
 @media(max-height:540px){.card-stage .card-media{height:82px}.media-source{padding:4px 6px}.media-icon{width:29px;height:29px}.media-source-link{min-height:27px}.media-info{min-height:27px}.card-stage h2{font-size:19px}.card-stage .summary{font-size:11px}.feed-page .top{height:54px}.feed-page .tabs button{padding:8px 3px}.feed-page .feed-controls{height:44px}.feed-page .bottom{height:49px}.card-stage{height:calc(100dvh - 181px)}}
+@media(max-height:500px){.card-stage .card-media{height:72px;min-height:72px}}
 @media(max-width:365px){.slide-indicator small{display:none}.feed-page .topic-trigger{flex-basis:94px}.feed-page .feed-controls .mode button{min-width:62px}.slide-step{width:15px;min-width:15px}}
