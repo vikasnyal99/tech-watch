@@ -1506,6 +1506,102 @@ class BriefCard extends StatelessWidget {
   final bool saved;
   final VoidCallback onSave, onShare, onSource;
 
+  void showDetails(BuildContext context) {
+    Widget row(IconData icon, String title, String value) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: clay, size: 21),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 3),
+                Text(value, style: const TextStyle(color: muted, height: 1.35)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFFFFFDF9),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * .82,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 2, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Impact & next steps',
+                  style: TextStyle(
+                    fontFamily: 'serif',
+                    fontSize: 27,
+                    color: ink,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                const Text(
+                  'A practical readout for this briefing.',
+                  style: TextStyle(color: muted),
+                ),
+                const SizedBox(height: 14),
+                const Divider(),
+                row(
+                  Icons.info_outline,
+                  'Why it matters',
+                  item['why_it_matters']?.toString() ?? '',
+                ),
+                const Divider(),
+                row(
+                  Icons.check_box_outlined,
+                  'What to check',
+                  item['next_action']?.toString() ?? '',
+                ),
+                if ((item['source_label']?.toString() ?? '').isNotEmpty) ...[
+                  const Divider(),
+                  Text(
+                    'Source: ${item['source_label']}',
+                    style: const TextStyle(
+                      color: clay,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 17),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    child: const Text('Back to briefing'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget mediaIcon(
     IconData icon,
     String label,
@@ -1527,58 +1623,6 @@ class BriefCard extends StatelessWidget {
         ),
       ),
     ),
-  );
-
-  Widget insight(
-    IconData icon,
-    String heading,
-    String body,
-    bool compact,
-    bool tiny,
-  ) => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Icon(
-        icon,
-        color: clay,
-        size: tiny
-            ? 15
-            : compact
-            ? 17
-            : 19,
-      ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              heading,
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: tiny
-                    ? 10
-                    : compact
-                    ? 11
-                    : 12,
-              ),
-            ),
-            Text(
-              body,
-              style: TextStyle(
-                fontSize: tiny
-                    ? 10
-                    : compact
-                    ? 11
-                    : 12,
-                color: muted,
-                height: 1.18,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ],
   );
 
   @override
@@ -1723,14 +1767,52 @@ class BriefCard extends StatelessWidget {
                                 ),
                               ),
                               Positioned(
-                                left: 11,
-                                bottom: 10,
-                                child: Text(
-                                  technology,
-                                  style: const TextStyle(
+                                left: 7,
+                                bottom: 7,
+                                child: Semantics(
+                                  button: true,
+                                  label: 'Impact and next steps',
+                                  child: Material(
                                     color: clay,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
+                                    borderRadius: BorderRadius.circular(8),
+                                    elevation: 3,
+                                    child: InkWell(
+                                      onTap: () => showDetails(context),
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: tiny ? 6 : 9,
+                                          vertical: tiny ? 4 : 6,
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.info_outline,
+                                              size: 19,
+                                              color: Colors.white,
+                                            ),
+                                            const SizedBox(width: 5),
+                                            Text(
+                                              tiny
+                                                  ? 'Details'
+                                                  : 'Impact & actions',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: tiny ? 10 : 11,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            const Icon(
+                                              Icons.arrow_outward,
+                                              size: 14,
+                                              color: Colors.white,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1841,53 +1923,6 @@ class BriefCard extends StatelessWidget {
                               : 14,
                           height: 1.27,
                           color: ink,
-                        ),
-                      ),
-                      SizedBox(
-                        height: tiny
-                            ? 6
-                            : compact
-                            ? 9
-                            : 13,
-                      ),
-                      Container(
-                        width: double.infinity,
-                        padding: EdgeInsets.all(
-                          tiny
-                              ? 6
-                              : compact
-                              ? 9
-                              : 11,
-                        ),
-                        decoration: BoxDecoration(
-                          color: soft,
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            insight(
-                              Icons.lightbulb_outline,
-                              'Why it matters',
-                              item['why_it_matters']?.toString() ?? '',
-                              compact,
-                              tiny,
-                            ),
-                            SizedBox(
-                              height: tiny
-                                  ? 4
-                                  : compact
-                                  ? 6
-                                  : 9,
-                            ),
-                            insight(
-                              Icons.check_box_outlined,
-                              'What to check',
-                              item['next_action']?.toString() ?? '',
-                              compact,
-                              tiny,
-                            ),
-                          ],
                         ),
                       ),
                     ],

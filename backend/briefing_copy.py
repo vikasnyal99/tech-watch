@@ -7,12 +7,12 @@ import re
 
 FIELD_LIMITS = {
     'title': 55,
-    'summary': 250,
+    'summary': 360,
     'why_it_matters': 110,
     'next_action': 95,
 }
 MIN_SUMMARY = 130
-TOTAL_LIMIT = 460
+TOTAL_LIMIT = 570
 
 
 def validate_briefing_copy(item: dict, *, allow_short_sample: bool = False) -> list[str]:

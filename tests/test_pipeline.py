@@ -20,11 +20,17 @@ def test_source_url_allowlist():
     assert not url_allowed('https://example.org.evil.test/', 'example.org')
 
 def test_overlong_card_copy_is_held_without_truncation():
-    candidate = base(summary='A' * 251)
+    candidate = base(summary='A' * 361)
     accepted, held = ingest([candidate])
     assert not accepted
-    assert 'summary exceeds 250 characters' in held[0]['errors']
+    assert 'summary exceeds 360 characters' in held[0]['errors']
     assert held[0]['candidate']['summary'] == candidate['summary']
+
+
+def test_longer_source_backed_summary_fits_editorial_budget():
+    candidate = base(summary=('A detailed, source-backed update. ' * 10).strip())
+    accepted, held = ingest([candidate])
+    assert accepted and not held
 
 
 def test_supporting_copy_is_required():

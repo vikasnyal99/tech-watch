@@ -38,4 +38,6 @@ The four tabs now have separate selection rules in `backend/feed_selection.py`. 
 
 Cards use an Editorial stack transition in both web and Flutter: the current full-screen briefing follows a vertical drag and lifts over the next card, then settles to one complete card. A short or cancelled drag returns to the current card. The web respects the saved Reduce motion choice and the operating-system preference; Flutter respects the saved choice and the platform accessibility setting. Buttons, wheel/keyboard paging on web, and list mode remain available.
 
+The image carries a prominent Impact & actions button. It opens a sheet with Why it matters, What to check, and source context, leaving the card body for a longer summary. The editorial summary budget is 360 characters, still subject to source evidence and human review. The fictional development fixtures demonstrate the expanded format without claiming a live event.
+
 The UI creates an installation ID for guest preferences. API calls to `/v1/feed` must include a valid UUID in `X-Installation-ID`. Set a private `ADMIN_TOKEN` in the environment to use `/admin/*` endpoints; do not put that token into the browser client.

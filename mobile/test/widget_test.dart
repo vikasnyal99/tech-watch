@@ -32,7 +32,7 @@ void main() {
       'type': 'release',
       'technology': 'Kubernetes',
       'title': 'Kubernetes release: what platform teams should review',
-      'summary': 'This release changes supported versions and removes older APIs used by some workloads. Platform teams should review upgrade prerequisites, check add-on compatibility, and compare cluster behavior with the official release notes before rollout.',
+      'summary': 'This release changes supported versions and removes older APIs used by some workloads. Platform teams should review upgrade prerequisites, check add-on compatibility, and compare cluster behavior with the official release notes before rollout. The rollout plan should account for control plane, node, networking and storage components.',
       'why_it_matters': 'Clusters and add-ons using removed APIs may need changes before a safe upgrade.',
       'next_action': 'Inventory API usage and test the upgrade in a non-production cluster.',
       'source_label': 'Official Kubernetes release notes',
@@ -60,6 +60,12 @@ void main() {
     expect(find.text('Read source'), findsOneWidget);
     expect(find.byIcon(Icons.bookmark_outline), findsOneWidget);
     expect(find.byIcon(Icons.ios_share_outlined), findsOneWidget);
+    expect(find.text('Details'), findsOneWidget);
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle();
+    expect(find.text('Impact & next steps'), findsOneWidget);
+    expect(find.text('Why it matters'), findsOneWidget);
+    expect(find.text('What to check'), findsOneWidget);
     expect(
       find.textContaining('This release changes supported versions'),
       findsOneWidget,
