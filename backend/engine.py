@@ -550,7 +550,7 @@ def published_items():
     with Session() as db:
         data = rows(db.execute(text("SELECT b.*,r.technology,r.version,r.release_type,r.published_at,r.source_id FROM tech_briefs b "
                                     "JOIN technology_releases r ON r.id=b.release_id WHERE b.status='published' "
-                                    'ORDER BY b.score DESC,b.created_at DESC LIMIT 150')))
+                                    'ORDER BY COALESCE(r.published_at,b.created_at) DESC,b.score DESC LIMIT 150')))
     return [
         {'id': x['id'], 'type': x['release_type'], 'technology': x['technology'], 'source_id': x['source_id'], 'title': x['title'],
          'summary': x['summary'], 'why_it_matters': x['why_it_matters'], 'next_action': x['next_action'],

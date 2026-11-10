@@ -38,3 +38,12 @@ def test_trending_is_broad_but_requires_a_significant_change():
     selected = trending_feed(items, today=TODAY)
     assert {x['technology'] for x in selected} == {'PHP', 'GitHub', 'Kubernetes'}
     assert selected[0]['technology'] == 'PHP'
+
+
+def test_trending_drops_stale_news_but_keeps_active_incidents():
+    old_news = item('Python', 'Backend & APIs', 'Python security release', 'security', 90)
+    old_news['published_at'] = '2026-09-01'
+    active_incident = item('Cloudflare', 'Reliability & observability', 'Regional service disruption', 'incident', 80)
+    active_incident['published_at'] = '2026-09-01'
+    active_incident['intelligence'] = {'rule_version': 'official-status-v1', 'severity': 'high'}
+    assert trending_feed([old_news, active_incident], today=TODAY) == [active_incident]

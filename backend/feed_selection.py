@@ -32,6 +32,17 @@ def freshness(item: dict, today: date) -> int:
     return 12 if age <= 2 else 8 if age <= 7 else 4 if age <= 14 else 0 if age <= 30 else -12
 
 
+def recent_for_trending(item: dict, today: date) -> bool:
+    if item.get('fictional'):
+        return True  # Recorded offline examples do not represent live recency.
+    if (item.get('intelligence') or {}).get('rule_version') == 'official-status-v1':
+        return True  # Still-active incidents are withdrawn when the provider resolves them.
+    try:
+        return (today - date.fromisoformat(item['published_at'][:10])).days <= 30
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def diverse_order(items: list[dict], value) -> list[dict]:
     """Keep strong stories first while avoiding a run from one vendor or topic."""
     remaining = list(items)
@@ -95,7 +106,7 @@ def importance(item: dict) -> int:
 def trending_feed(items: list[dict], signals: list[str] | None = None, today: date | None = None) -> list[dict]:
     today = today or date.today()
     signals = set(signals or [])
-    candidates = [item for item in items if importance(item) >= 65]
+    candidates = [item for item in items if importance(item) >= 65 and recent_for_trending(item, today)]
 
     def value(item):
         tier = importance(item)
