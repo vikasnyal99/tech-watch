@@ -346,6 +346,26 @@ def test_ai_draft_is_reviewed_and_edit_clears_model_rank(isolated_db, monkeypatc
     assert pipeline.draft_detail(draft['id'])['intelligence'] is None
 
 
+def test_editor_can_rank_unknown_impact_only_with_retained_evidence(isolated_db):
+    quote = 'The service is returning elevated errors in multiple regions.'
+    snapshot = {'offline': False, 'providers': [{'name': 'AWS', 'available': True}],
+                'incidents': [{'id': 'aws:regional-event', 'provider': 'AWS', 'title': 'Cloud service errors',
+                               'status': 'investigating', 'impact': 'unknown',
+                               'summary': quote + ' Engineers are investigating the affected services and will publish a further update. '
+                               'Customers should check the official status page for their account and region.',
+                               'updated_at': '2026-11-11T08:00:00+00:00',
+                               'url': 'https://health.aws.amazon.com/health/status'}]}
+    pipeline.sync_service_incidents(snapshot)
+    draft = pipeline.review_queue()[0]
+    assert draft['intelligence']['severity'] == 'unknown'
+    with pytest.raises(ValueError, match='exact'):
+        pipeline.edit_brief(draft['id'], {'severity': 'high', 'evidence_quote': 'All AWS services are down worldwide.'})
+    pipeline.edit_brief(draft['id'], {'severity': 'high', 'evidence_quote': quote})
+    assert pipeline.draft_detail(draft['id'])['intelligence']['rule_version'] == 'editorial-evidence-v1'
+    pipeline.review_decision(draft['id'], 'publish')
+    assert importance(pipeline.published_items()[0]) == 85
+
+
 def test_kafka_and_mysql_specialized_discovery():
     listing = '''<div class="td-blog-posts-list__body"><h5><a href="/blog/2026/10/23/apache-kafka-4.3.2-release-announcement/">Apache Kafka 4.3.2 Release Announcement</a></h5></div>'''
     kafka = parse_kafka_blog(listing)

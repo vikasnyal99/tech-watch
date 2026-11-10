@@ -14,7 +14,7 @@ def main():
     show.add_argument('id')
     edit = sub.add_parser('edit')
     edit.add_argument('id')
-    for field in ('title', 'summary', 'why_it_matters', 'next_action'):
+    for field in ('title', 'summary', 'why_it_matters', 'next_action', 'severity', 'evidence_quote'):
         edit.add_argument('--' + field.replace('_', '-'))
     for action in ('publish', 'reject'):
         command = sub.add_parser(action)
@@ -26,7 +26,7 @@ def main():
     elif args.command == 'show':
         result = draft_detail(args.id)
     elif args.command == 'edit':
-        changes = {field: getattr(args, field) for field in ('title', 'summary', 'why_it_matters', 'next_action')
+        changes = {field: getattr(args, field) for field in ('title', 'summary', 'why_it_matters', 'next_action', 'severity', 'evidence_quote')
                    if getattr(args, field) is not None}
         result = edit_brief(args.id, changes, actor='local-review-cli')
     else:

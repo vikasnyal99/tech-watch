@@ -44,6 +44,8 @@ class BriefEdit(BaseModel):
     summary: str | None = None
     why_it_matters: str | None = None
     next_action: str | None = None
+    severity: str | None = None
+    evidence_quote: str | None = None
 
 class SourceConfig(BaseModel):
     enabled: bool | None = None

@@ -636,19 +636,33 @@ def review_decision(brief_id: str, action: str, actor: str = 'local-admin'):
 
 
 def edit_brief(brief_id: str, changes: dict, actor: str = 'local-admin'):
-    allowed = {'title', 'summary', 'why_it_matters', 'next_action'}
+    copy_fields = {'title', 'summary', 'why_it_matters', 'next_action'}
+    allowed = copy_fields | {'severity', 'evidence_quote'}
     if not changes or set(changes) - allowed:
-        raise ValueError('only briefing copy fields may be edited')
+        raise ValueError('unsupported briefing edit field')
+    if ('severity' in changes) != ('evidence_quote' in changes):
+        raise ValueError('severity and exact evidence quote must be provided together')
     with Session.begin() as db:
         row = db.execute(text('SELECT * FROM tech_briefs WHERE id=:id'), {'id': brief_id}).mappings().first()
         if not row or row['status'] not in ('review_required', 'needs_edit', 'published'):
             raise ValueError('brief is not awaiting review')
-        copy = {key: changes.get(key, row[key]) for key in allowed}
+        copy = {key: changes.get(key, row[key]) for key in copy_fields}
         errors = validate_briefing_copy(copy)
         if errors:
             raise ValueError(', '.join(errors))
         analysis = json.loads(row['intelligence_json']) if row['intelligence_json'] else None
-        retained_analysis = row['intelligence_json'] if analysis and analysis.get('rule_version') == 'official-status-v1' else None
+        retained_analysis = row['intelligence_json'] if analysis and analysis.get('rule_version') in ('official-status-v1', 'editorial-evidence-v1') else None
+        if 'severity' in changes:
+            if changes['severity'] not in ('critical', 'high', 'medium', 'low', 'unknown'):
+                raise ValueError('invalid severity')
+            quote = changes['evidence_quote'].strip()
+            raw = db.execute(text('SELECT raw_text FROM release_revisions WHERE id=:id'),
+                             {'id': row['revision_id']}).scalar_one()
+            if len(quote) < 20 or len(quote) > 500 or quote not in raw:
+                raise ValueError('severity evidence must be an exact 20–500 character source quote')
+            retained_analysis = json.dumps({'rule_version': 'editorial-evidence-v1',
+                                            'severity': changes['severity'], 'confidence': 'reviewed',
+                                            'evidence_quote': quote, 'actor': actor})
         db.execute(text('UPDATE tech_briefs SET title=:title,summary=:summary,why_it_matters=:why,next_action=:action,status=:status,intelligence_json=:analysis,updated_at=:stamp WHERE id=:id'),
                    {'title': copy['title'], 'summary': copy['summary'], 'why': copy['why_it_matters'],
                     'action': copy['next_action'], 'status': 'review_required', 'analysis': retained_analysis,

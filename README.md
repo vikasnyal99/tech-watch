@@ -14,6 +14,8 @@ The **Health** bottom tab checks 14 official public status sources: AWS, Google 
 
 The worker also checks these incident sources about every five minutes and creates source-backed **drafts** when an active issue starts or changes. A reviewer must approve a briefing before it can appear in Feed or Trending. Provider-reported `major` and `critical` impacts rank as high and critical after approval; unknown impact stays out of Trending. When a provider confirms resolution, its incident briefing is withdrawn. A failed provider check never implies resolution. Health remains the immediate public status view.
 
+For an incident with unknown machine-readable impact, a reviewer can set `severity` and supply an exact retained source quote in the same edit. The review CLI supports `edit ID --severity high --evidence-quote '...'`; the admin PATCH endpoint accepts the same fields. This records an evidence-checked editorial decision before publication.
+
 Optional AI-assisted drafts are enabled only when both `OPENAI_API_KEY` and `OPENAI_MODEL` are set on the worker. The model receives official source text, returns a structured draft and an exact evidence quote, and cannot publish. Invalid or unsupported responses fall back to a draft needing manual editing. Leave these variables unset for a zero-model-cost installation. Reviewers can inspect analysis in `python -m backend.review_cli show ID`; editing AI copy clears the model severity so stale analysis cannot affect Trending. No push alerts or automated editorial approval are implemented.
 
 ## Original handoff references

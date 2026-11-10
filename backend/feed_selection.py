@@ -86,6 +86,8 @@ def importance(item: dict) -> int:
     intelligence = item.get('intelligence') or {}
     if intelligence.get('rule_version') == 'official-status-v1':
         return {'critical': 100, 'high': 85}.get(intelligence.get('severity'), 0)
+    if intelligence.get('rule_version') == 'editorial-evidence-v1':
+        return {'critical': 100, 'high': 85, 'medium': 60}.get(intelligence.get('severity'), 0)
     if intelligence.get('rule_version') == 'ai-evidence-v1' and 'severity' in intelligence:
         if intelligence.get('confidence') == 'low':
             return 0
