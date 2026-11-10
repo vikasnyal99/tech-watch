@@ -176,7 +176,7 @@ def public_source_health():
     items = [{key: source[key] for key in ('id', 'technology', 'url', 'adapter', 'status',
                                            'last_attempt_at', 'last_success_at', 'next_due_at')}
              | {'error': (source['last_error'] or '')[:180] or None}
-             for source in source_health() if source['adapter'] != 'fixture_python']
+             for source in source_health() if source['adapter'] not in ('fixture_python', 'status')]
     counts = {status: sum(item['status'] == status for item in items)
               for status in ('healthy', 'stale', 'error', 'pending', 'disabled', 'paused')}
     return {'checked_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),

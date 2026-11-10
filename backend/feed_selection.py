@@ -72,6 +72,14 @@ def personal_feed(items: list[dict], preferences, today: date | None = None) -> 
 
 
 def importance(item: dict) -> int:
+    intelligence = item.get('intelligence') or {}
+    if intelligence.get('rule_version') == 'official-status-v1':
+        return {'critical': 100, 'high': 85}.get(intelligence.get('severity'), 0)
+    if intelligence.get('rule_version') == 'ai-evidence-v1' and 'severity' in intelligence:
+        if intelligence.get('confidence') == 'low':
+            return 0
+        return {'critical': 100, 'high': 85, 'medium': 60,
+                'low': 0, 'unknown': 0}.get(intelligence['severity'], 0)
     text = f"{item['title']} {item['summary']}"
     if item.get('source_id') == 'github-advisories' or SECURITY.search(text):
         return 100

@@ -19,6 +19,7 @@ from backend.special_sources import (parse_anthropic_news, article_excerpt,
 from backend.data import TECHNOLOGIES
 from backend.feed_selection import importance
 from backend.service_health import parse_status_page, parse_aws_events, parse_google_events, parse_azure_feed, PROVIDERS
+from backend.intelligence import analyze
 
 
 @pytest.fixture
@@ -256,6 +257,93 @@ def test_kernel_feed_uses_unique_official_changelog_urls():
     </channel></rss>'''
     entries = parse_kernel_releases(xml)
     assert len(entries) == 2 and entries[0].url != entries[1].url
+
+
+def test_urgent_source_cadence_and_incident_review_lifecycle(isolated_db):
+    pipeline.seed_rss_sources()
+    with isolated_db() as session:
+        intervals = dict(session.execute(text("SELECT id,interval_seconds FROM technology_sources WHERE id IN ('aws-security','cloudflare-blog')")).all())
+    assert intervals == {'aws-security': 600, 'cloudflare-blog': 1800}
+    incident = {'id': 'cloudflare:cf-123', 'provider': 'Cloudflare',
+                'title': 'Regional Cloudflare service disruption', 'status': 'investigating',
+                'impact': 'major', 'summary': ('Cloudflare reports elevated errors for its edge service in one region. '
+                'The provider is investigating and has not established whether other regions are affected. '
+                'Customers using the named region should inspect the official status page.'),
+                'updated_at': '2026-11-11T07:00:00+00:00',
+                'url': 'https://www.cloudflarestatus.com/incidents/cf-123'}
+    snapshot = {'offline': False, 'providers': [{'name': 'Cloudflare', 'available': True}], 'incidents': [incident]}
+    assert pipeline.sync_service_incidents(snapshot) == 1
+    assert pipeline.sync_service_incidents(snapshot) == 0
+    assert not pipeline.published_items()
+    queued = pipeline.review_queue()
+    assert len(queued) == 1 and queued[0]['intelligence']['severity'] == 'high'
+    pipeline.edit_brief(queued[0]['id'], {'next_action': 'Check the official incident page and the error rate in your affected region.'})
+    assert pipeline.draft_detail(queued[0]['id'])['intelligence']['severity'] == 'high'
+    pipeline.review_decision(queued[0]['id'], 'publish')
+    published = pipeline.published_items()
+    assert len(published) == 1 and published[0]['topic'] == 'Reliability & observability'
+    assert importance(published[0]) == 85
+    assert len(main.trending_feed(published)) == 1
+    # The provider's confirmed resolution removes the briefing, but never on a failed status check.
+    assert pipeline.sync_service_incidents({'offline': False, 'providers': [{'name': 'Cloudflare', 'available': False}], 'incidents': []}) == 0
+    assert len(pipeline.published_items()) == 1
+    assert pipeline.sync_service_incidents({'offline': False, 'providers': [{'name': 'Cloudflare', 'available': True}], 'incidents': []}) == 0
+    assert not pipeline.published_items()
+
+
+def test_ai_analysis_requires_source_evidence_and_keeps_review_gate(monkeypatch):
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
+    monkeypatch.setenv('OPENAI_MODEL', 'test-model')
+    monkeypatch.delenv('OFFLINE_MODE', raising=False)
+    source = ('Cloudflare reports a partial outage in one region. The edge service returns elevated errors. '
+              'The provider is investigating the cause and has not confirmed impact in other regions.')
+    result = {'title': 'Cloudflare edge errors in one region',
+              'summary': ('Cloudflare reports elevated errors for its edge service in one region. '
+                          'The provider is investigating the cause. It has not confirmed impact elsewhere, '
+                          'so teams should check the official incident for their affected service and location.'),
+              'why_it_matters': 'Applications using the affected edge region may see increased errors.',
+              'next_action': 'Check the incident page and your regional error rates.',
+              'severity': 'high', 'confidence': 'medium', 'affected_products': ['edge service'],
+              'affected_regions': [], 'evidence_quote': 'The edge service returns elevated errors.',
+              'unknowns': ['Other regions']}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {'status': 'completed', 'output': [{'content': [{'type': 'output_text', 'text': __import__('json').dumps(result)}]}]}
+
+    monkeypatch.setattr('backend.intelligence.httpx.post', lambda *args, **kwargs: Response())
+    output = analyze('Cloudflare outage', source, 'https://www.cloudflarestatus.com/incidents/example')
+    assert output['severity'] == 'high' and output['rule_version'] == 'ai-evidence-v1'
+    result['evidence_quote'] = 'A worldwide outage is confirmed.'
+    with pytest.raises(ValueError, match='absent from source'):
+        analyze('Cloudflare outage', source, 'https://www.cloudflarestatus.com/incidents/example')
+
+
+def test_ai_draft_is_reviewed_and_edit_clears_model_rank(isolated_db, monkeypatch):
+    xml = '''<rss><channel><item><title>Cloudflare security update</title>
+    <link>https://blog.cloudflare.com/example-update/</link>
+    <description>Cloudflare published a security update for its edge service. The official release describes the issue and the mitigation for operators.</description>
+    </item></channel></rss>'''
+    copy = {'title': 'Cloudflare security update', 'summary': ('Cloudflare published a security update for its edge service. '
+            'The official release describes the issue and mitigation for operators. Teams should check the official '
+            'article for the specific deployments covered before changing their configuration.'),
+            'why_it_matters': 'Operators of the affected edge service may need to review their configuration.',
+            'next_action': 'Read the official release and check the affected deployment scope.',
+            'severity': 'high', 'confidence': 'medium', 'evidence_quote': 'Cloudflare published a security update',
+            'rule_version': 'ai-evidence-v1'}
+    pipeline.seed_rss_sources()
+    monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (xml, 200, None, None))
+    monkeypatch.setattr(pipeline, 'intelligence_configured', lambda: True)
+    monkeypatch.setattr(pipeline, 'analyze', lambda *args: copy)
+    pipeline.manual_recheck('cloudflare-blog'); drain()
+    draft = pipeline.review_queue()[0]
+    assert draft['status'] == 'review_required' and draft['intelligence']['severity'] == 'high'
+    assert not pipeline.published_items()
+    pipeline.edit_brief(draft['id'], {'next_action': 'Check the official release and deployment scope before acting.'})
+    assert pipeline.draft_detail(draft['id'])['intelligence'] is None
 
 
 def test_kafka_and_mysql_specialized_discovery():

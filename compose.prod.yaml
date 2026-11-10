@@ -48,6 +48,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://techwatch:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the server .env file}@db:5432/techwatch
       OFFLINE_MODE: ${OFFLINE_MODE:-0}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
     networks:
       - private
     depends_on:

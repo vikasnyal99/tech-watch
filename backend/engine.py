@@ -10,6 +10,7 @@ import re
 from sqlalchemy import text
 from backend.db import Session, engine
 from backend.briefing_copy import validate_briefing_copy
+from backend.intelligence import analyze, configured as intelligence_configured
 from backend.fetcher import fetch_html
 from backend.python_source import discover_releases, parse_release
 from backend.rss_source import (SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, SOURCE_ADAPTERS,
@@ -17,6 +18,7 @@ from backend.rss_source import (SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, SOURC
 from backend.special_sources import (parse_anthropic_news, article_excerpt,
                                      parse_github_advisories, parse_kernel_releases,
                                      parse_kafka_blog, parse_mysql_tags)
+from backend.service_health import service_snapshot
 
 FIXTURE_DIR = Path(__file__).parents[1] / 'fixtures' / 'python_source'
 
@@ -43,7 +45,7 @@ def seed_source(source_id='python-downloads', adapter='python_downloads', enable
         db.execute(text('INSERT INTO technology_sources (id,technology,url,adapter,enabled,interval_seconds,next_due_at,created_at,updated_at) '
                         'VALUES (:id,:technology,:url,:adapter,:enabled,:interval,:due,:stamp,:stamp) ON CONFLICT(id) DO NOTHING'),
                    {'id': source_id, 'technology': 'Python', 'url': 'https://www.python.org/downloads/',
-                    'adapter': adapter, 'enabled': int(enabled), 'interval': 21600, 'due': stamp,
+                    'adapter': adapter, 'enabled': int(enabled), 'interval': 3600, 'due': stamp,
                     'stamp': stamp})
 
 
@@ -51,11 +53,90 @@ def seed_rss_sources():
     stamp = now()
     with Session.begin() as db:
         for source_id, technology, url, _topic in SOURCES:
+            interval = 600 if source_id in {'aws-security', 'node-security', 'github-advisories'} else 1800
             db.execute(text('INSERT INTO technology_sources (id,technology,url,adapter,enabled,interval_seconds,next_due_at,created_at,updated_at) '
-                            'VALUES (:id,:technology,:url,:adapter,:enabled,3600,:due,:stamp,:stamp) ON CONFLICT(id) DO NOTHING'),
+                            'VALUES (:id,:technology,:url,:adapter,:enabled,:interval,:due,:stamp,:stamp) ON CONFLICT(id) DO NOTHING'),
                        {'id': source_id, 'technology': technology, 'url': url,
                         'adapter': SOURCE_ADAPTERS.get(source_id, 'rss'),
-                        'enabled': int(source_id not in DISABLED_BY_DEFAULT), 'due': stamp, 'stamp': stamp})
+                        'enabled': int(source_id not in DISABLED_BY_DEFAULT), 'interval': interval,
+                        'due': stamp, 'stamp': stamp})
+
+
+def sync_service_incidents(snapshot: dict | None = None) -> int:
+    """Create reviewable revisions from official active incidents; never auto-publish."""
+    snapshot = snapshot if snapshot is not None else service_snapshot()
+    if snapshot.get('offline'):
+        return 0
+    available = {provider['name'] for provider in snapshot.get('providers', []) if provider.get('available')}
+    active_keys = set()
+    created = 0
+    stamp = now()
+    with Session.begin() as db:
+        for incident in snapshot.get('incidents', []):
+            if incident['provider'] not in available:
+                continue
+            provider = incident['provider']
+            source_id = 'status:' + re.sub(r'[^a-z0-9]+', '-', provider.casefold()).strip('-')
+            db.execute(text('INSERT INTO technology_sources (id,technology,url,adapter,enabled,interval_seconds,next_due_at,created_at,updated_at) '
+                            'VALUES (:id,:tech,:url,:adapter,0,300,NULL,:stamp,:stamp) ON CONFLICT(id) DO NOTHING'),
+                       {'id': source_id, 'tech': provider, 'url': incident['url'], 'adapter': 'status', 'stamp': stamp})
+            version = 'incident-' + sha256(incident['id'].encode()).hexdigest()[:24]
+            active_keys.add((source_id, version))
+            body = f"{incident['title']}\n{incident.get('summary') or ''}\n{incident.get('status') or ''}\n{incident.get('impact') or ''}"
+            digest = sha256(body.encode()).hexdigest()
+            release = db.execute(text('SELECT * FROM technology_releases WHERE technology=:tech AND version=:version'),
+                                 {'tech': provider, 'version': version}).mappings().first()
+            if release and release['latest_hash'] == digest:
+                continue
+            if release:
+                release_id = release['id']
+                db.execute(text('UPDATE technology_releases SET latest_hash=:digest,updated_at=:stamp,published_at=:published WHERE id=:id'),
+                           {'digest': digest, 'stamp': stamp, 'published': incident.get('updated_at') or stamp, 'id': release_id})
+            else:
+                release_id = uid()
+                db.execute(text('INSERT INTO technology_releases (id,technology,version,source_id,canonical_url,release_type,published_at,latest_hash,created_at,updated_at) '
+                                'VALUES (:id,:tech,:version,:source,:url,:type,:published,:digest,:stamp,:stamp)'),
+                           {'id': release_id, 'tech': provider, 'version': version, 'source': source_id,
+                            'url': incident['url'], 'type': 'incident',
+                            'published': incident.get('updated_at') or stamp, 'digest': digest, 'stamp': stamp})
+            revision_id = uid()
+            db.execute(text('INSERT INTO release_revisions (id,release_id,content_hash,raw_text,created_at) '
+                            'VALUES (:id,:release,:digest,:raw,:stamp)'),
+                       {'id': revision_id, 'release': release_id, 'digest': digest, 'raw': body, 'stamp': stamp})
+            db.execute(text('INSERT INTO release_facts (id,revision_id,kind,description,evidence_excerpt,evidence_url,confidence) '
+                            'VALUES (:id,:revision,:kind,:description,:evidence,:url,:confidence)'),
+                       {'id': uid(), 'revision': revision_id, 'kind': 'incident', 'description': body,
+                        'evidence': body[:1000], 'url': incident['url'], 'confidence': 'official_status'})
+            impact = str(incident.get('impact') or 'unknown').casefold()
+            severity = 'critical' if impact == 'critical' else 'high' if impact == 'major' else 'unknown'
+            analysis = {'rule_version': 'official-status-v1', 'severity': severity, 'confidence': 'high' if severity != 'unknown' else 'low',
+                        'provider_impact': impact, 'affected_regions': [], 'source_url': incident['url']}
+            summary = (incident.get('summary') or '').strip()[:510]
+            copy = {'title': incident['title'][:55], 'summary': summary,
+                    'why_it_matters': f"{provider} reports an active service issue; check its stated scope.",
+                    'next_action': 'Check the official status page for affected services and regions.'}
+            status = 'needs_edit' if validate_briefing_copy(copy) else 'review_required'
+            db.execute(text("UPDATE tech_briefs SET status='superseded',updated_at=:stamp "
+                            "WHERE release_id=:release AND status IN ('review_required','needs_edit')"),
+                       {'stamp': stamp, 'release': release_id})
+            db.execute(text('INSERT INTO tech_briefs (id,release_id,revision_id,title,summary,why_it_matters,next_action,score,status,fictional,source_label,source_url,intelligence_json,created_at,updated_at) '
+                            'VALUES (:id,:release,:revision,:title,:summary,:why,:action,:score,:status,0,:label,:url,:analysis,:stamp,:stamp)'),
+                       {'id': uid(), 'release': release_id, 'revision': revision_id, **copy,
+                        'why': copy['why_it_matters'], 'action': copy['next_action'],
+                        'score': 90 if severity == 'critical' else 80 if severity == 'high' else 50,
+                        'status': status, 'label': f'{provider} official status', 'url': incident['url'],
+                        'analysis': json.dumps(analysis), 'stamp': stamp})
+            created += 1
+        # An unavailable provider is never interpreted as recovered.
+        if available:
+            previous = rows(db.execute(text("SELECT r.id,r.source_id,r.version,s.technology FROM technology_releases r "
+                                            "JOIN technology_sources s ON s.id=r.source_id WHERE s.adapter='status'")))
+            for release in previous:
+                if release['technology'] in available and (release['source_id'], release['version']) not in active_keys:
+                    db.execute(text("UPDATE tech_briefs SET status='superseded',updated_at=:stamp "
+                                    "WHERE release_id=:release AND status IN ('published','review_required','needs_edit')"),
+                               {'stamp': stamp, 'release': release['id']})
+    return created
 
 
 def enqueue(db, kind: str, payload: dict, key: str):
@@ -339,12 +420,23 @@ def process_rss_brief(job: dict):
         copy = {'title': payload['title'], 'summary': source_summary(row['description']),
                 'why_it_matters': f"Official {row['technology']} update; review its relevance to your work.",
                 'next_action': 'Read the official source for details.'}
+        analysis = None
+        if intelligence_configured():
+            try:
+                analysis = analyze(payload['title'], row['description'], row['canonical_url'])
+                if analysis:
+                    copy = {field: analysis[field] for field in copy}
+            except (ValueError, KeyError, TypeError, RuntimeError, OSError, TimeoutError) as error:
+                analysis = {'analysis_error': str(error)[:250], 'rule_version': 'ai-evidence-v1'}
+            except Exception as error:
+                analysis = {'analysis_error': type(error).__name__, 'rule_version': 'ai-evidence-v1'}
         status = 'needs_edit' if validate_briefing_copy(copy) else 'review_required'
-        db.execute(text('INSERT INTO tech_briefs (id,release_id,revision_id,title,summary,why_it_matters,next_action,score,status,fictional,source_label,source_url,created_at,updated_at) '
-                        'VALUES (:id,:release,:revision,:title,:summary,:why,:action,:score,:status,0,:label,:url,:stamp,:stamp)'),
+        db.execute(text('INSERT INTO tech_briefs (id,release_id,revision_id,title,summary,why_it_matters,next_action,score,status,fictional,source_label,source_url,intelligence_json,created_at,updated_at) '
+                        'VALUES (:id,:release,:revision,:title,:summary,:why,:action,:score,:status,0,:label,:url,:analysis,:stamp,:stamp)'),
                    {'id': uid(), 'release': row['release_id'], 'revision': payload['revision_id'],
                     'title': copy['title'], 'summary': copy['summary'], 'why': copy['why_it_matters'],
                     'action': copy['next_action'], 'score': payload['score'], 'status': status,
+                    'analysis': json.dumps(analysis) if analysis else None,
                     'label': ('GitHub reviewed advisory' if payload['source_id'] == 'github-advisories'
                               else f"{row['technology']} official source"),
                     'url': row['canonical_url'], 'stamp': now()})
@@ -463,8 +555,10 @@ def published_items():
         {'id': x['id'], 'type': x['release_type'], 'technology': x['technology'], 'source_id': x['source_id'], 'title': x['title'],
          'summary': x['summary'], 'why_it_matters': x['why_it_matters'], 'next_action': x['next_action'],
          'source_label': x['source_label'], 'source_url': x['source_url'], 'fictional': bool(x['fictional']),
-         'topic': next((s[3] for s in SOURCES if s[0] == x['source_id']), 'Backend & APIs'), 'published_at': x['published_at'], 'updated_at': x['updated_at'],
-         'score': x['score']}
+         'topic': ('Reliability & observability' if x['source_id'].startswith('status:') else
+                   next((s[3] for s in SOURCES if s[0] == x['source_id']), 'Backend & APIs')),
+         'published_at': x['published_at'], 'updated_at': x['updated_at'],
+         'score': x['score'], 'intelligence': json.loads(x['intelligence_json']) if x['intelligence_json'] else None}
         for x in data
     ]
 
@@ -489,11 +583,14 @@ def event_detail(brief_id: str):
 
 def review_queue():
     with Session() as db:
-        return rows(db.execute(text("SELECT b.id,b.title,b.summary,b.status,b.source_url,b.source_label,b.score,b.created_at,"
+        result = rows(db.execute(text("SELECT b.id,b.title,b.summary,b.status,b.source_url,b.source_label,b.score,b.created_at,b.intelligence_json,"
                                     "r.technology,r.release_type,r.published_at,substr(f.evidence_excerpt,1,320) evidence_preview "
                                     'FROM tech_briefs b JOIN technology_releases r ON r.id=b.release_id '
                                     'JOIN release_facts f ON f.revision_id=b.revision_id '
                                     "WHERE b.status IN ('review_required','needs_edit') ORDER BY b.score DESC,b.created_at DESC LIMIT 200")))
+        for item in result:
+            item['intelligence'] = json.loads(item.pop('intelligence_json')) if item['intelligence_json'] else None
+        return result
 
 
 def draft_detail(brief_id: str):
@@ -506,7 +603,9 @@ def draft_detail(brief_id: str):
         facts = rows(db.execute(text('SELECT kind,description,evidence_excerpt,evidence_url,confidence '
                                      'FROM release_facts WHERE revision_id=:id ORDER BY id'),
                                 {'id': brief['revision_id']}))
-        return {**dict(brief), 'facts': facts}
+        result = dict(brief)
+        result['intelligence'] = json.loads(result.pop('intelligence_json')) if result['intelligence_json'] else None
+        return {**result, 'facts': facts}
 
 
 def review_decision(brief_id: str, action: str, actor: str = 'local-admin'):
@@ -548,9 +647,12 @@ def edit_brief(brief_id: str, changes: dict, actor: str = 'local-admin'):
         errors = validate_briefing_copy(copy)
         if errors:
             raise ValueError(', '.join(errors))
-        db.execute(text('UPDATE tech_briefs SET title=:title,summary=:summary,why_it_matters=:why,next_action=:action,status=:status,updated_at=:stamp WHERE id=:id'),
+        analysis = json.loads(row['intelligence_json']) if row['intelligence_json'] else None
+        retained_analysis = row['intelligence_json'] if analysis and analysis.get('rule_version') == 'official-status-v1' else None
+        db.execute(text('UPDATE tech_briefs SET title=:title,summary=:summary,why_it_matters=:why,next_action=:action,status=:status,intelligence_json=:analysis,updated_at=:stamp WHERE id=:id'),
                    {'title': copy['title'], 'summary': copy['summary'], 'why': copy['why_it_matters'],
-                    'action': copy['next_action'], 'status': 'review_required', 'stamp': now(), 'id': brief_id})
+                    'action': copy['next_action'], 'status': 'review_required', 'analysis': retained_analysis,
+                    'stamp': now(), 'id': brief_id})
         db.execute(text('INSERT INTO review_audit (id,brief_id,action,actor,created_at) VALUES (:id,:brief,:action,:actor,:stamp)'),
                    {'id': uid(), 'brief': brief_id, 'action': 'edit', 'actor': actor, 'stamp': now()})
     return {'id': brief_id, 'status': 'review_required'}

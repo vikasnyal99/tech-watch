@@ -2,7 +2,7 @@
 import os
 import time
 from backend.db import migrate
-from backend.engine import run_once, schedule_due, seed_source, seed_rss_sources
+from backend.engine import run_once, schedule_due, seed_source, seed_rss_sources, sync_service_incidents
 
 
 def main():
@@ -10,9 +10,16 @@ def main():
     seed_source()
     seed_rss_sources()
     once = os.getenv('PROCESS_ONCE') == '1'
+    next_incident_check = 0.0
     while True:
         if os.getenv('OFFLINE_MODE') != '1':
             schedule_due()
+            if time.monotonic() >= next_incident_check:
+                try:
+                    sync_service_incidents()
+                except Exception as error:
+                    print(f'Incident synchronization failed: {type(error).__name__}: {error}', flush=True)
+                next_incident_check = time.monotonic() + 300
         processed = run_once()
         if once:
             return
