@@ -50,6 +50,7 @@ services:
       OFFLINE_MODE: ${OFFLINE_MODE:-0}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       AI_ENABLED: ${AI_ENABLED:-0}
+      AUTO_PUBLISH_ROUTINE: ${AUTO_PUBLISH_ROUTINE:-0}
     networks:
       - private
     depends_on:

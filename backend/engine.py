@@ -11,7 +11,8 @@ from sqlalchemy import text
 from backend.db import Session, engine
 from backend.briefing_copy import validate_briefing_copy
 from backend.intelligence import analyze, configured as intelligence_configured, eligible as intelligence_eligible, AnalysisError
-from backend.ai_budget import reserve as reserve_ai, settle as settle_ai
+from backend.ai_budget import PROMPT_VERSION, reserve as reserve_ai, settle as settle_ai
+from backend.publication_policy import routine_auto_publishable
 from backend.fetcher import fetch_html
 from backend.python_source import discover_releases, parse_release
 from backend.rss_source import (SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, SOURCE_ADAPTERS,
@@ -434,17 +435,54 @@ def process_rss_brief(job: dict):
         if intelligence_configured() and intelligence_eligible(row['release_type'], payload['title'],
                                                                 payload['source_id'], row['description'], row['published_at']):
             enqueue(db, 'analyze-brief', {'revision_id': payload['revision_id']},
-                    f"ai:{payload['revision_id']}:techwatch-source-v2")
+                    f"ai:{payload['revision_id']}:{PROMPT_VERSION}")
+
+
+def schedule_ai_backfill(limit: int = 6) -> int:
+    """Select a few recent, untouched official RSS drafts for the existing review backlog."""
+    if not intelligence_configured():
+        return 0
+    with Session.begin() as db:
+        candidates = db.execute(text("SELECT b.revision_id,b.title,r.release_type,r.source_id,r.published_at,f.description "
+                                     "FROM tech_briefs b JOIN technology_releases r ON r.id=b.release_id "
+                                     "JOIN release_revisions v ON v.id=b.revision_id "
+                                     "JOIN release_facts f ON f.revision_id=b.revision_id "
+                                     "WHERE b.status IN ('needs_edit','review_required') AND b.intelligence_json IS NULL "
+                                     "AND v.content_hash=r.latest_hash AND r.version LIKE 'rss-%' "
+                                     "AND NOT EXISTS (SELECT 1 FROM review_audit a WHERE a.brief_id=b.id) "
+                                     "AND NOT EXISTS (SELECT 1 FROM ai_requests a WHERE a.revision_id=b.revision_id) "
+                                     "ORDER BY CASE WHEN r.release_type IN ('security','deprecation') THEN 1 ELSE 0 END, "
+                                     "r.published_at DESC LIMIT 100")).mappings().all()
+        created = 0
+        for row in candidates:
+            if not intelligence_eligible(row['release_type'], row['title'], row['source_id'],
+                                         row['description'], row['published_at']):
+                continue
+            key = f"ai:{row['revision_id']}:{PROMPT_VERSION}"
+            before = db.execute(text('SELECT 1 FROM processing_jobs WHERE idempotency_key=:key'),
+                                {'key': key}).first()
+            if before:
+                continue
+            enqueue(db, 'analyze-brief', {'revision_id': row['revision_id']}, key)
+            created += 1
+            if created >= limit:
+                break
+    return created
 
 
 def process_ai_brief(job: dict):
     revision_id = job['payload']['revision_id']
     with Session() as db:
-        row = db.execute(text("SELECT b.id,b.status,b.intelligence_json,b.title,r.canonical_url,r.release_type,r.source_id,f.description "
+        row = db.execute(text("SELECT b.id,b.status,b.intelligence_json,b.title,b.summary,b.why_it_matters,b.next_action,"
+                              "r.canonical_url,r.release_type,r.source_id,r.published_at,r.latest_hash,v.content_hash,f.description "
                               "FROM tech_briefs b JOIN technology_releases r ON r.id=b.release_id "
+                              "JOIN release_revisions v ON v.id=b.revision_id "
                               "JOIN release_facts f ON f.revision_id=b.revision_id "
                               "WHERE b.revision_id=:id LIMIT 1"), {'id': revision_id}).mappings().first()
-    if not row or row['status'] != 'needs_edit' or row['intelligence_json'] or not intelligence_configured():
+        was_edited = bool(row and db.execute(text('SELECT 1 FROM review_audit WHERE brief_id=:id LIMIT 1'),
+                                             {'id': row['id']}).first())
+    if (not row or row['status'] not in ('needs_edit', 'review_required') or row['intelligence_json']
+            or row['content_hash'] != row['latest_hash'] or was_edited or not intelligence_configured()):
         return
     reservation = reserve_ai(revision_id, urgent=row['release_type'] in ('security', 'deprecation')
                              or row['source_id'] == 'github-advisories')
@@ -456,12 +494,29 @@ def process_ai_brief(job: dict):
             raise AnalysisError('AI is not configured')
         usage = analysis.pop('_usage', {})
         copy = {field: analysis[field] for field in ('title', 'summary', 'why_it_matters', 'next_action')}
+        automatic = os.getenv('AUTO_PUBLISH_ROUTINE') == '1' and routine_auto_publishable(
+            analysis, source_title=row['title'], source_text=row['description'],
+            release_type=row['release_type'], published_at=row['published_at'])
         with Session.begin() as db:
             result = db.execute(text("UPDATE tech_briefs SET title=:title,summary=:summary,why_it_matters=:why,"
-                            "next_action=:action,intelligence_json=:analysis,status='review_required',updated_at=:stamp "
-                            "WHERE id=:id AND status='needs_edit' AND intelligence_json IS NULL"),
+                            "next_action=:action,intelligence_json=:analysis,status=:status,updated_at=:stamp "
+                            "WHERE id=:id AND status IN ('needs_edit','review_required') AND intelligence_json IS NULL "
+                            "AND NOT EXISTS (SELECT 1 FROM review_audit WHERE brief_id=:id) "
+                            "AND EXISTS (SELECT 1 FROM technology_releases r JOIN release_revisions v "
+                            "ON v.release_id=r.id WHERE v.id=:revision AND r.latest_hash=v.content_hash)"),
                        {'title': copy['title'], 'summary': copy['summary'], 'why': copy['why_it_matters'],
-                        'action': copy['next_action'], 'analysis': json.dumps(analysis), 'stamp': now(), 'id': row['id']})
+                        'action': copy['next_action'], 'analysis': json.dumps(analysis),
+                        'status': 'published' if automatic else 'review_required', 'stamp': now(),
+                        'id': row['id'], 'revision': revision_id})
+            if result.rowcount and automatic:
+                db.execute(text("UPDATE tech_briefs SET status='superseded',updated_at=:stamp "
+                                "WHERE release_id=(SELECT release_id FROM tech_briefs WHERE id=:id) "
+                                "AND id<>:id AND status='published'"),
+                           {'stamp': now(), 'id': row['id']})
+                db.execute(text('INSERT INTO review_audit (id,brief_id,action,actor,created_at) '
+                                'VALUES (:id,:brief,:action,:actor,:stamp)'),
+                           {'id': uid(), 'brief': row['id'], 'action': 'auto_publish',
+                            'actor': 'routine-policy-v1', 'stamp': now()})
             settle_ai(reservation, input_tokens=usage.get('input_tokens'), output_tokens=usage.get('output_tokens'),
                       error=None if result.rowcount else 'draft_changed_during_analysis', db=db)
     except Exception as error:

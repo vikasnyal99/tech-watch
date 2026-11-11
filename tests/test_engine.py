@@ -22,6 +22,7 @@ from backend.feed_selection import importance
 from backend.service_health import parse_status_page, parse_aws_events, parse_google_events, parse_azure_feed, PROVIDERS
 from backend.intelligence import analyze, AnalysisError
 from backend.intelligence import configured as ai_configured, eligible as ai_eligible
+from backend.publication_policy import routine_auto_publishable
 
 
 @pytest.fixture
@@ -307,6 +308,7 @@ def test_ai_analysis_requires_source_evidence_and_keeps_review_gate(monkeypatch)
               'next_action': 'Check the incident page and your regional error rates.',
               'severity': 'high', 'confidence': 'medium', 'affected_products': ['edge service'],
               'affected_regions': [], 'evidence_quote': 'The edge service returns elevated errors.',
+              'summary_evidence_quote': 'Cloudflare reports a partial outage in one region. The edge service returns elevated errors.',
               'unknowns': ['Other regions']}
 
     class Response:
@@ -343,6 +345,7 @@ def test_ai_draft_is_reviewed_and_edit_clears_model_rank(isolated_db, monkeypatc
             'why_it_matters': 'Operators of the affected edge service may need to review their configuration.',
             'next_action': 'Read the official release and check the affected deployment scope.',
             'severity': 'high', 'confidence': 'medium', 'evidence_quote': 'Cloudflare published a security update',
+            'summary_evidence_quote': 'Cloudflare published a security update for its edge service. The official release describes the issue and the mitigation for operators.',
             'rule_version': 'ai-evidence-v2', '_usage': {'input_tokens': 800, 'output_tokens': 300}}
     pipeline.seed_rss_sources()
     monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (xml, 200, None, None))
@@ -387,10 +390,84 @@ def test_ai_requires_explicit_switch_and_significant_recent_source(monkeypatch):
     text_body = 'The vendor confirms a serious update with documented scope and mitigation. ' * 3
     assert ai_eligible('security', 'Security release', 'node-security', text_body, '2026-11-12',
                        today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
-    assert not ai_eligible('update', 'Weekly developer newsletter', 'cloudflare-blog', text_body, '2026-11-12',
-                           today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
+    assert ai_eligible('update', 'Routine developer update', 'cloudflare-blog', text_body, '2026-11-12',
+                       today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
     assert not ai_eligible('security', 'Old security release', 'node-security', text_body, '2026-09-01',
                            today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
+
+
+def test_routine_publication_policy_requires_source_evidence_and_no_risk():
+    source = ('Kubernetes 1.32 adds a new scheduling option for workloads using dedicated nodes. '
+              'Operators can enable the option in the scheduler configuration after reviewing the release notes. '
+              'The previous scheduling behaviour remains the default for existing clusters.')
+    analysis = {
+        'title': 'Kubernetes adds a scheduling option',
+        'summary': ('Kubernetes 1.32 adds a scheduling option for workloads using dedicated nodes. '
+                    'Operators can enable it through scheduler configuration after reviewing the release notes. '
+                    'Existing clusters keep the previous scheduling behaviour by default.'),
+        'why_it_matters': 'Teams with dedicated nodes can evaluate the new scheduler option.',
+        'next_action': 'Review the release notes and scheduler configuration before enabling it.',
+        'severity': 'medium', 'confidence': 'high', 'affected_regions': [], 'unknowns': [],
+        'evidence_quote': 'Kubernetes 1.32 adds a new scheduling option for workloads using dedicated nodes.',
+        'summary_evidence_quote': 'Operators can enable the option in the scheduler configuration after reviewing the release notes.',
+        'rule_version': 'ai-evidence-v2',
+    }
+    today = datetime(2026, 11, 12, tzinfo=timezone.utc).date()
+    kw = {'source_title': 'Kubernetes scheduling option', 'source_text': source,
+          'release_type': 'update', 'published_at': '2026-11-12', 'today': today}
+    assert routine_auto_publishable(analysis, **kw)
+    assert not routine_auto_publishable(analysis, **{**kw, 'source_title': 'Security update for Kubernetes'})
+    assert not routine_auto_publishable(analysis, **{**kw, 'published_at': '2026-11-01'})
+    assert not routine_auto_publishable({**analysis, 'unknowns': ['Impact not confirmed']}, **kw)
+    assert not routine_auto_publishable({**analysis, 'summary_evidence_quote': 'Unsupported claim'}, **kw)
+
+
+def test_routine_ai_publishes_without_review_but_records_audit(isolated_db, monkeypatch):
+    when = datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
+    source = ('Kubernetes adds a scheduling option for workloads using dedicated nodes. '
+              'Operators can enable the option in the scheduler configuration after reviewing the release notes. '
+              'The previous scheduling behaviour remains the default for existing clusters.')
+    xml = f'''<rss><channel><item><title>Kubernetes scheduling option</title>
+    <link>https://kubernetes.io/blog/scheduling-option/</link>
+    <description>{source}</description><pubDate>{when}</pubDate></item></channel></rss>'''
+    analysis = {'title': 'Kubernetes adds a scheduling option',
+                'summary': ('Kubernetes adds a scheduling option for workloads using dedicated nodes. '
+                            'Operators can enable it after reviewing the release notes. Existing clusters keep '
+                            'the previous scheduling behaviour by default.'),
+                'why_it_matters': 'Teams with dedicated nodes can evaluate the new scheduler option.',
+                'next_action': 'Review the release notes and scheduler configuration before enabling it.',
+                'severity': 'medium', 'confidence': 'high', 'affected_regions': [], 'unknowns': [],
+                'evidence_quote': 'Kubernetes adds a scheduling option for workloads using dedicated nodes.',
+                'summary_evidence_quote': 'Operators can enable the option in the scheduler configuration after reviewing the release notes.',
+                'rule_version': 'ai-evidence-v2', '_usage': {'input_tokens': 700, 'output_tokens': 250}}
+    monkeypatch.setenv('AUTO_PUBLISH_ROUTINE', '1')
+    pipeline.seed_rss_sources()
+    monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (xml, 200, None, None))
+    monkeypatch.setattr(pipeline, 'intelligence_configured', lambda: True)
+    monkeypatch.setattr(pipeline, 'analyze', lambda *args: dict(analysis))
+    pipeline.manual_recheck('kubernetes-blog'); drain()
+    assert not pipeline.review_queue()
+    assert len(pipeline.published_items()) == 1
+    with isolated_db() as session:
+        assert session.execute(text("SELECT action FROM review_audit WHERE actor='routine-policy-v1'")).scalar_one() == 'auto_publish'
+
+
+def test_recent_untouched_draft_can_enter_bounded_ai_backfill(isolated_db, monkeypatch):
+    when = datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
+    xml = f'''<rss><channel><item><title>Kubernetes scheduler update</title>
+    <link>https://kubernetes.io/blog/scheduler-update/</link>
+    <description>Kubernetes adds a scheduler configuration option for dedicated nodes. Operators can review the release documentation before enabling it. Existing clusters keep their previous scheduler configuration until an operator changes it.</description>
+    <pubDate>{when}</pubDate></item></channel></rss>'''
+    pipeline.seed_rss_sources()
+    monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (xml, 200, None, None))
+    monkeypatch.setattr(pipeline, 'intelligence_configured', lambda: False)
+    pipeline.manual_recheck('kubernetes-blog'); drain()
+    assert pipeline.review_queue()
+    monkeypatch.setattr(pipeline, 'intelligence_configured', lambda: True)
+    assert pipeline.schedule_ai_backfill(limit=1) == 1
+    assert pipeline.schedule_ai_backfill(limit=1) == 0
+    with isolated_db() as session:
+        assert session.execute(text("SELECT count(*) FROM processing_jobs WHERE kind='analyze-brief'")).scalar_one() == 1
 
 
 def test_ai_budget_is_idempotent_and_preserves_urgent_capacity(isolated_db, monkeypatch):
