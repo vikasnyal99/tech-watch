@@ -11,7 +11,7 @@ from sqlalchemy import text
 from backend.db import Session, engine
 from backend.briefing_copy import validate_briefing_copy
 from backend.intelligence import analyze, verify, configured as intelligence_configured, eligible as intelligence_eligible, AnalysisError
-from backend.ai_budget import PROMPT_VERSION, VERIFY_VERSION, reserve as reserve_ai, settle as settle_ai
+from backend.ai_budget import PROMPT_VERSION, VERIFY_VERSION, BudgetUnavailable, reserve as reserve_ai, settle as settle_ai
 from backend.publication_policy import routine_auto_publishable, needs_second_check, verified_auto_publishable
 from backend.fetcher import fetch_html
 from backend.python_source import discover_releases, parse_release
@@ -208,6 +208,14 @@ def fail_job(job: dict, error: Exception):
             url = job['payload'].get('url') or db.execute(text('SELECT url FROM technology_sources WHERE id=:id'),
                                                            {'id': source_id}).scalar_one()
             record_fetch(db, source_id, url, None, None, error=message)
+
+
+def defer_budget_job(job: dict, error: BudgetUnavailable):
+    """A quota pause is not a processing failure or a consumed job attempt."""
+    with Session.begin() as db:
+        db.execute(text("UPDATE processing_jobs SET status='pending',attempts=0,"
+                        "available_at=:due,lease_until=NULL,last_error=:reason,updated_at=:stamp WHERE id=:id"),
+                   {'due': error.retry_at, 'reason': str(error), 'stamp': now(), 'id': job['id']})
 
 
 def source_record(source_id: str):
@@ -460,9 +468,16 @@ def schedule_ai_backfill(limit: int = 6) -> int:
                                          row['description'], row['published_at']):
                 continue
             key = f"ai:{row['revision_id']}:{PROMPT_VERSION}"
-            before = db.execute(text('SELECT 1 FROM processing_jobs WHERE idempotency_key=:key'),
-                                {'key': key}).first()
+            before = db.execute(text('SELECT status FROM processing_jobs WHERE idempotency_key=:key'),
+                                {'key': key}).mappings().first()
             if before:
+                if before['status'] == 'succeeded':
+                    db.execute(text("UPDATE processing_jobs SET status='pending',attempts=0,available_at=:stamp,"
+                                    "lease_until=NULL,last_error=NULL,updated_at=:stamp WHERE idempotency_key=:key"),
+                               {'stamp': now(), 'key': key})
+                    created += 1
+                    if created >= limit:
+                        break
                 continue
             enqueue(db, 'analyze-brief', {'revision_id': row['revision_id']}, key)
             created += 1
@@ -539,8 +554,16 @@ def schedule_verify_existing(limit: int = 6) -> int:
                                       published_at=row['published_at']):
                 continue
             key = f"verify:{row['revision_id']}:{VERIFY_VERSION}"
-            if db.execute(text('SELECT 1 FROM processing_jobs WHERE idempotency_key=:key'),
-                          {'key': key}).first():
+            before = db.execute(text('SELECT status FROM processing_jobs WHERE idempotency_key=:key'),
+                                {'key': key}).mappings().first()
+            if before:
+                if before['status'] == 'succeeded':
+                    db.execute(text("UPDATE processing_jobs SET status='pending',attempts=0,available_at=:stamp,"
+                                    "lease_until=NULL,last_error=NULL,updated_at=:stamp WHERE idempotency_key=:key"),
+                               {'stamp': now(), 'key': key})
+                    created += 1
+                    if created >= limit:
+                        break
                 continue
             enqueue(db, 'verify-brief', {'revision_id': row['revision_id']}, key)
             created += 1
@@ -819,6 +842,8 @@ def run_once():
          'generate-rss-brief': process_rss_brief,
          'analyze-brief': process_ai_brief, 'verify-brief': process_verify_brief}[job['kind']](job)
         finish_job(job['id'])
+    except BudgetUnavailable as error:
+        defer_budget_job(job, error)
     except Exception as error:
         fail_job(job, error)
     return True

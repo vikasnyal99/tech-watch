@@ -11,6 +11,7 @@ import backend.db as db
 import backend.engine as pipeline
 import backend.main as main
 import backend.ai_budget as ai_budget
+from backend.ai_budget import BudgetUnavailable
 from backend.fetcher import check_url
 from backend.python_source import discover_releases, parse_release
 from backend.rss_source import parse_feed, score, canonical_url, SOURCES, DISABLED_BY_DEFAULT
@@ -590,6 +591,11 @@ def test_recent_untouched_draft_can_enter_bounded_ai_backfill(isolated_db, monke
     assert pipeline.schedule_ai_backfill(limit=1) == 0
     with isolated_db() as session:
         assert session.execute(text("SELECT count(*) FROM processing_jobs WHERE kind='analyze-brief'")).scalar_one() == 1
+    with isolated_db.begin() as session:
+        session.execute(text("UPDATE processing_jobs SET status='succeeded' WHERE kind='analyze-brief'"))
+    assert pipeline.schedule_ai_backfill(limit=1) == 1
+    with isolated_db() as session:
+        assert session.execute(text("SELECT status FROM processing_jobs WHERE kind='analyze-brief'")).scalar_one() == 'pending'
 
 
 def test_existing_valid_ai_draft_promotes_without_another_model_call(isolated_db, monkeypatch):
@@ -638,14 +644,15 @@ def test_ai_budget_is_idempotent_and_preserves_urgent_capacity(isolated_db, monk
                            {'id': second, 'release': release_id, 'hash': 'second-test-hash',
                             'raw': 'Second recorded revision', 'stamp': datetime.now(timezone.utc).isoformat()})
     monkeypatch.setattr(ai_budget, 'monthly_cap', lambda: ai_budget.RESERVATION_MICROUSD - 1)
-    assert ai_budget.reserve(first) is None
-    with isolated_db.begin() as db_session:
-        db_session.execute(text('UPDATE ai_budget_months SET cap_microusd=5000000'))
+    with pytest.raises(BudgetUnavailable, match='monthly'):
+        ai_budget.reserve(first)
+    monkeypatch.setattr(ai_budget, 'monthly_cap', lambda: 5_000_000)
     monkeypatch.setattr(ai_budget, 'DEFAULT_DAILY_ROUTINE_CAP', 1)
     reservation = ai_budget.reserve(first)
     assert reservation
     assert ai_budget.reserve(first) is None
-    assert ai_budget.reserve(second) is None
+    with pytest.raises(BudgetUnavailable, match='daily'):
+        ai_budget.reserve(second)
     assert ai_budget.reserve(second, urgent=True)
     assert ai_budget.settle(reservation, input_tokens=1000, output_tokens=400) == 300
     assert ai_budget.usage_snapshot()['spent_usd'] == 0.0003
@@ -680,6 +687,26 @@ def test_failed_ai_keeps_source_draft_and_records_token_usage(isolated_db, monke
     assert not pipeline.published_items()
     assert ai_budget.usage_snapshot()['failed'] == 1
     assert ai_budget.usage_snapshot()['spent_usd'] == 0.000195
+
+
+def test_daily_limit_defers_ai_job_without_losing_it(isolated_db, monkeypatch):
+    when = datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
+    xml = f'''<rss><channel><item><title>GitHub security release</title>
+    <link>https://github.blog/changelog/security-release/</link>
+    <description>GitHub reports a security release for Actions with documented workflow policy changes and guidance for engineers reviewing their affected repositories.</description>
+    <pubDate>{when}</pubDate></item></channel></rss>'''
+    pipeline.seed_rss_sources()
+    monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (xml, 200, None, None))
+    monkeypatch.setattr(pipeline, 'intelligence_configured', lambda: True)
+    monkeypatch.setattr(ai_budget, 'DEFAULT_DAILY_CALL_CAP', 0)
+    pipeline.manual_recheck('github-changelog'); drain()
+    with isolated_db() as session:
+        job = session.execute(text("SELECT status,attempts,available_at,last_error FROM processing_jobs "
+                                   "WHERE kind='analyze-brief'")).mappings().one()
+    assert job['status'] == 'pending' and job['attempts'] == 0
+    assert datetime.fromisoformat(job['available_at']) > datetime.now(timezone.utc)
+    assert 'daily AI' in job['last_error']
+    assert ai_budget.usage_snapshot()['calls'] == 0
 
 
 def test_kafka_and_mysql_specialized_discovery():

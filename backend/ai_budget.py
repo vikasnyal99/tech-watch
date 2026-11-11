@@ -23,6 +23,12 @@ DEFAULT_DAILY_CALL_CAP = 50
 DEFAULT_DAILY_ROUTINE_CAP = 30
 
 
+class BudgetUnavailable(Exception):
+    def __init__(self, retry_at: str, reason: str):
+        super().__init__(reason)
+        self.retry_at = retry_at
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -34,7 +40,7 @@ def monthly_cap() -> int:
 
 def reserve(revision_id: str, *, urgent: bool = False,
             prompt_version: str = PROMPT_VERSION) -> str | None:
-    """Return a reservation id; None means duplicate or budget exhausted."""
+    """Return a reservation id, None for a duplicate, or raise for exhausted budget."""
     stamp = utc_now()
     month = stamp.strftime('%Y-%m')
     day = stamp.strftime('%Y-%m-%d')
@@ -46,14 +52,21 @@ def reserve(revision_id: str, *, urgent: bool = False,
         if engine.dialect.name == 'postgresql':
             sql += ' FOR UPDATE'
         budget = db.execute(text(sql), {'month': month}).mappings().one()
+        if db.execute(text('SELECT 1 FROM ai_requests WHERE revision_id=:revision AND prompt_version=:version'),
+                      {'revision': revision_id, 'version': prompt_version}).first():
+            return None
         tomorrow = (stamp + timedelta(days=1)).strftime('%Y-%m-%d')
         used_today = db.execute(text('SELECT count(*) FROM ai_requests WHERE created_at>=:day AND created_at<:tomorrow'),
                                 {'day': day, 'tomorrow': tomorrow}).scalar_one()
         routine_today = db.execute(text("SELECT count(*) FROM ai_requests WHERE created_at>=:day AND created_at<:tomorrow AND priority='routine'"),
                                    {'day': day, 'tomorrow': tomorrow}).scalar_one()
-        if (used_today >= DEFAULT_DAILY_CALL_CAP or (not urgent and routine_today >= DEFAULT_DAILY_ROUTINE_CAP)
-                or budget['spent_microusd'] + budget['reserved_microusd'] + RESERVATION_MICROUSD > budget['cap_microusd']):
-            return None
+        if budget['spent_microusd'] + budget['reserved_microusd'] + RESERVATION_MICROUSD > budget['cap_microusd']:
+            next_month = datetime(stamp.year + (stamp.month == 12), stamp.month % 12 + 1,
+                                  1, 0, 5, tzinfo=timezone.utc)
+            raise BudgetUnavailable(next_month.isoformat(timespec='seconds'), 'monthly AI budget reached')
+        if used_today >= DEFAULT_DAILY_CALL_CAP or (not urgent and routine_today >= DEFAULT_DAILY_ROUTINE_CAP):
+            next_day = datetime(stamp.year, stamp.month, stamp.day, tzinfo=timezone.utc) + timedelta(days=1, minutes=5)
+            raise BudgetUnavailable(next_day.isoformat(timespec='seconds'), 'daily AI call limit reached')
         result = db.execute(text('INSERT INTO ai_requests (id,revision_id,prompt_version,model,status,priority,month,reserved_microusd,created_at,updated_at) '
                                  'VALUES (:id,:revision,:version,:model,:status,:priority,:month,:reserve,:stamp,:stamp) '
                                  'ON CONFLICT(revision_id,prompt_version) DO NOTHING'),
