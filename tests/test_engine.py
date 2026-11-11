@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 import backend.db as db
 import backend.engine as pipeline
 import backend.main as main
+import backend.ai_budget as ai_budget
 from backend.fetcher import check_url
 from backend.python_source import discover_releases, parse_release
 from backend.rss_source import parse_feed, score, canonical_url, SOURCES, DISABLED_BY_DEFAULT
@@ -19,14 +20,15 @@ from backend.special_sources import (parse_anthropic_news, article_excerpt,
 from backend.data import TECHNOLOGIES
 from backend.feed_selection import importance
 from backend.service_health import parse_status_page, parse_aws_events, parse_google_events, parse_azure_feed, PROVIDERS
-from backend.intelligence import analyze
+from backend.intelligence import analyze, AnalysisError
+from backend.intelligence import configured as ai_configured, eligible as ai_eligible
 
 
 @pytest.fixture
 def isolated_db(tmp_path, monkeypatch):
     database = create_engine(f"sqlite:///{tmp_path / 'engine.db'}", connect_args={'check_same_thread': False})
     sessions = sessionmaker(bind=database)
-    for module in (db, pipeline):
+    for module in (db, pipeline, ai_budget):
         monkeypatch.setattr(module, 'engine', database)
         monkeypatch.setattr(module, 'Session', sessions)
     monkeypatch.setattr(main, 'Session', sessions)
@@ -293,7 +295,7 @@ def test_urgent_source_cadence_and_incident_review_lifecycle(isolated_db):
 
 def test_ai_analysis_requires_source_evidence_and_keeps_review_gate(monkeypatch):
     monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
-    monkeypatch.setenv('OPENAI_MODEL', 'test-model')
+    monkeypatch.setenv('AI_ENABLED', '1')
     monkeypatch.delenv('OFFLINE_MODE', raising=False)
     source = ('Cloudflare reports a partial outage in one region. The edge service returns elevated errors. '
               'The provider is investigating the cause and has not confirmed impact in other regions.')
@@ -312,20 +314,28 @@ def test_ai_analysis_requires_source_evidence_and_keeps_review_gate(monkeypatch)
             return None
 
         def json(self):
-            return {'status': 'completed', 'output': [{'content': [{'type': 'output_text', 'text': __import__('json').dumps(result)}]}]}
+            return {'status': 'completed', 'usage': {'input_tokens': 900, 'output_tokens': 300},
+                    'output': [{'content': [{'type': 'output_text', 'text': __import__('json').dumps(result)}]}]}
 
-    monkeypatch.setattr('backend.intelligence.httpx.post', lambda *args, **kwargs: Response())
+    calls = []
+    monkeypatch.setattr('backend.intelligence.httpx.post', lambda *args, **kwargs: (calls.append(kwargs), Response())[1])
     output = analyze('Cloudflare outage', source, 'https://www.cloudflarestatus.com/incidents/example')
-    assert output['severity'] == 'high' and output['rule_version'] == 'ai-evidence-v1'
+    assert output['severity'] == 'high' and output['rule_version'] == 'ai-evidence-v2'
+    assert calls[0]['json']['model'] == 'gpt-6-luna'
+    assert calls[0]['json']['reasoning'] == {'effort': 'none'}
+    assert calls[0]['json']['max_output_tokens'] == 1000
+    assert output['_usage']['input_tokens'] == 900
     result['evidence_quote'] = 'A worldwide outage is confirmed.'
     with pytest.raises(ValueError, match='absent from source'):
         analyze('Cloudflare outage', source, 'https://www.cloudflarestatus.com/incidents/example')
 
 
 def test_ai_draft_is_reviewed_and_edit_clears_model_rank(isolated_db, monkeypatch):
-    xml = '''<rss><channel><item><title>Cloudflare security update</title>
+    when = datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
+    xml = f'''<rss><channel><item><title>Cloudflare security update</title>
     <link>https://blog.cloudflare.com/example-update/</link>
     <description>Cloudflare published a security update for its edge service. The official release describes the issue and the mitigation for operators.</description>
+    <pubDate>{when}</pubDate>
     </item></channel></rss>'''
     copy = {'title': 'Cloudflare security update', 'summary': ('Cloudflare published a security update for its edge service. '
             'The official release describes the issue and mitigation for operators. Teams should check the official '
@@ -333,7 +343,7 @@ def test_ai_draft_is_reviewed_and_edit_clears_model_rank(isolated_db, monkeypatc
             'why_it_matters': 'Operators of the affected edge service may need to review their configuration.',
             'next_action': 'Read the official release and check the affected deployment scope.',
             'severity': 'high', 'confidence': 'medium', 'evidence_quote': 'Cloudflare published a security update',
-            'rule_version': 'ai-evidence-v1'}
+            'rule_version': 'ai-evidence-v2', '_usage': {'input_tokens': 800, 'output_tokens': 300}}
     pipeline.seed_rss_sources()
     monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (xml, 200, None, None))
     monkeypatch.setattr(pipeline, 'intelligence_configured', lambda: True)
@@ -341,6 +351,8 @@ def test_ai_draft_is_reviewed_and_edit_clears_model_rank(isolated_db, monkeypatc
     pipeline.manual_recheck('cloudflare-blog'); drain()
     draft = pipeline.review_queue()[0]
     assert draft['status'] == 'review_required' and draft['intelligence']['severity'] == 'high'
+    assert count(isolated_db, 'ai_requests') == 1
+    assert ai_budget.usage_snapshot()['spent_usd'] == 0.00023
     assert not pipeline.published_items()
     pipeline.edit_brief(draft['id'], {'next_action': 'Check the official release and deployment scope before acting.'})
     assert pipeline.draft_detail(draft['id'])['intelligence'] is None
@@ -364,6 +376,72 @@ def test_editor_can_rank_unknown_impact_only_with_retained_evidence(isolated_db)
     assert pipeline.draft_detail(draft['id'])['intelligence']['rule_version'] == 'editorial-evidence-v1'
     pipeline.review_decision(draft['id'], 'publish')
     assert importance(pipeline.published_items()[0]) == 85
+
+
+def test_ai_requires_explicit_switch_and_significant_recent_source(monkeypatch):
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
+    monkeypatch.delenv('AI_ENABLED', raising=False)
+    assert not ai_configured()
+    monkeypatch.setenv('AI_ENABLED', '1')
+    assert ai_configured()
+    text_body = 'The vendor confirms a serious update with documented scope and mitigation. ' * 3
+    assert ai_eligible('security', 'Security release', 'node-security', text_body, '2026-11-12',
+                       today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
+    assert not ai_eligible('update', 'Weekly developer newsletter', 'cloudflare-blog', text_body, '2026-11-12',
+                           today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
+    assert not ai_eligible('security', 'Old security release', 'node-security', text_body, '2026-09-01',
+                           today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
+
+
+def test_ai_budget_is_idempotent_and_preserves_urgent_capacity(isolated_db, monkeypatch):
+    pipeline.seed_source('python-fixture', 'fixture_python', True)
+    pipeline.schedule_due(); drain()
+    with isolated_db.begin() as db_session:
+        release_id = db_session.execute(text('SELECT id FROM technology_releases LIMIT 1')).scalar_one()
+        first = db_session.execute(text('SELECT id FROM release_revisions LIMIT 1')).scalar_one()
+        second = uuid.uuid4().hex
+        db_session.execute(text('INSERT INTO release_revisions (id,release_id,content_hash,raw_text,created_at) '
+                                'VALUES (:id,:release,:hash,:raw,:stamp)'),
+                           {'id': second, 'release': release_id, 'hash': 'second-test-hash',
+                            'raw': 'Second recorded revision', 'stamp': datetime.now(timezone.utc).isoformat()})
+    monkeypatch.setattr(ai_budget, 'monthly_cap', lambda: ai_budget.RESERVATION_MICROUSD - 1)
+    assert ai_budget.reserve(first) is None
+    with isolated_db.begin() as db_session:
+        db_session.execute(text('UPDATE ai_budget_months SET cap_microusd=5000000'))
+    monkeypatch.setattr(ai_budget, 'DEFAULT_DAILY_ROUTINE_CAP', 1)
+    reservation = ai_budget.reserve(first)
+    assert reservation
+    assert ai_budget.reserve(first) is None
+    assert ai_budget.reserve(second) is None
+    assert ai_budget.reserve(second, urgent=True)
+    assert ai_budget.settle(reservation, input_tokens=1000, output_tokens=400) == 300
+    assert ai_budget.usage_snapshot()['spent_usd'] == 0.0003
+    monkeypatch.setenv('ADMIN_TOKEN', 'local-test-token')
+    with TestClient(main.app) as client:
+        assert client.get('/admin/ai-usage').status_code == 403
+        usage = client.get('/admin/ai-usage', headers={'X-Admin-Token': 'local-test-token'}).json()
+        assert usage['calls'] == 2 and usage['input_tokens'] == 1000
+
+
+def test_failed_ai_keeps_source_draft_and_records_token_usage(isolated_db, monkeypatch):
+    when = datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
+    xml = f'''<rss><channel><item><title>GitHub security release</title>
+    <link>https://github.blog/changelog/security-release/</link>
+    <description>GitHub reports a security release for Actions with documented workflow policy changes and guidance for engineers reviewing their affected repositories.</description>
+    <pubDate>{when}</pubDate></item></channel></rss>'''
+    pipeline.seed_rss_sources()
+    monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (xml, 200, None, None))
+    monkeypatch.setattr(pipeline, 'intelligence_configured', lambda: True)
+
+    def bad_analysis(*args):
+        raise AnalysisError('Unsupported scope', {'input_tokens': 700, 'output_tokens': 250})
+
+    monkeypatch.setattr(pipeline, 'analyze', bad_analysis)
+    pipeline.manual_recheck('github-changelog'); drain()
+    assert pipeline.review_queue()[0]['status'] == 'needs_edit'
+    assert not pipeline.published_items()
+    assert ai_budget.usage_snapshot()['failed'] == 1
+    assert ai_budget.usage_snapshot()['spent_usd'] == 0.000195
 
 
 def test_kafka_and_mysql_specialized_discovery():

@@ -14,6 +14,17 @@ mode `0600` and values for `POSTGRES_PASSWORD` and `ADMIN_TOKEN`; use separate
 long random values, and keep the file out of Git. Set `OFFLINE_MODE=0` for live
 source polling. The production Compose file rejects missing secrets.
 
+For AI-assisted drafts, store a TechWatch project service-account key as
+`OPENAI_API_KEY` in this server-side `.env` file. Do not put the key in Git,
+the mobile app, or a message. Saving the key does not activate calls:
+`AI_ENABLED` defaults to `0`. Once the separate project spending limit is
+configured, set `AI_ENABLED=1` and recreate only the worker. The worker uses
+`gpt-6-luna`; it has its own fixed $5 monthly budget, daily call limits, and
+source eligibility checks. Run `docker compose -f compose.prod.yaml exec -T
+worker python -m backend.review_cli ai-usage` to see usage without printing the
+key. Provider billing is authoritative; the app ledger conservatively counts
+unknown-usage failures at its request reservation ceiling.
+
 Run:
 
 ```sh

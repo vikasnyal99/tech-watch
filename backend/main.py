@@ -11,6 +11,7 @@ from sqlalchemy import text
 from backend.db import Session, migrate
 from backend.data import fixture_items, TECHNOLOGIES, TOPICS, ROLES
 from backend.feed_selection import personal_feed, trending_feed
+from backend.ai_budget import usage_snapshot
 from backend.service_health import service_snapshot
 from backend.pipeline import ingest
 from backend.engine import (seed_source, seed_rss_sources, published_items, review_queue, review_decision,
@@ -226,6 +227,11 @@ def admin_recheck(source_id: str, x_admin_token: str | None = Header(None)):
 def admin_sources(x_admin_token: str | None = Header(None)):
     admin_guard(x_admin_token)
     return {'items': source_health()}
+
+@app.get('/admin/ai-usage')
+def admin_ai_usage(x_admin_token: str | None = Header(None)):
+    admin_guard(x_admin_token)
+    return usage_snapshot()
 
 @app.patch('/admin/sources/{source_id}')
 def admin_configure_source(source_id: str, body: SourceConfig, x_admin_token: str | None = Header(None)):

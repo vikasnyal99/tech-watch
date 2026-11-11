@@ -10,7 +10,8 @@ import re
 from sqlalchemy import text
 from backend.db import Session, engine
 from backend.briefing_copy import validate_briefing_copy
-from backend.intelligence import analyze, configured as intelligence_configured
+from backend.intelligence import analyze, configured as intelligence_configured, eligible as intelligence_eligible, AnalysisError
+from backend.ai_budget import reserve as reserve_ai, settle as settle_ai
 from backend.fetcher import fetch_html
 from backend.python_source import discover_releases, parse_release
 from backend.rss_source import (SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, SOURCE_ADAPTERS,
@@ -412,7 +413,7 @@ def store_entries(db, source: dict, entries: list[Entry], stamp: str):
 def process_rss_brief(job: dict):
     payload = job['payload']
     with Session.begin() as db:
-        row = db.execute(text('SELECT r.release_id,v.technology,v.canonical_url,f.description FROM release_revisions r '
+        row = db.execute(text('SELECT r.release_id,v.technology,v.canonical_url,v.release_type,v.published_at,f.description FROM release_revisions r '
                               'JOIN technology_releases v ON v.id=r.release_id JOIN release_facts f ON f.revision_id=r.id '
                               'WHERE r.id=:id LIMIT 1'), {'id': payload['revision_id']}).mappings().one()
         if db.execute(text('SELECT id FROM tech_briefs WHERE revision_id=:id'), {'id': payload['revision_id']}).first():
@@ -420,26 +421,53 @@ def process_rss_brief(job: dict):
         copy = {'title': payload['title'], 'summary': source_summary(row['description']),
                 'why_it_matters': f"Official {row['technology']} update; review its relevance to your work.",
                 'next_action': 'Read the official source for details.'}
-        analysis = None
-        if intelligence_configured():
-            try:
-                analysis = analyze(payload['title'], row['description'], row['canonical_url'])
-                if analysis:
-                    copy = {field: analysis[field] for field in copy}
-            except (ValueError, KeyError, TypeError, RuntimeError, OSError, TimeoutError) as error:
-                analysis = {'analysis_error': str(error)[:250], 'rule_version': 'ai-evidence-v1'}
-            except Exception as error:
-                analysis = {'analysis_error': type(error).__name__, 'rule_version': 'ai-evidence-v1'}
         status = 'needs_edit' if validate_briefing_copy(copy) else 'review_required'
         db.execute(text('INSERT INTO tech_briefs (id,release_id,revision_id,title,summary,why_it_matters,next_action,score,status,fictional,source_label,source_url,intelligence_json,created_at,updated_at) '
                         'VALUES (:id,:release,:revision,:title,:summary,:why,:action,:score,:status,0,:label,:url,:analysis,:stamp,:stamp)'),
                    {'id': uid(), 'release': row['release_id'], 'revision': payload['revision_id'],
                     'title': copy['title'], 'summary': copy['summary'], 'why': copy['why_it_matters'],
                     'action': copy['next_action'], 'score': payload['score'], 'status': status,
-                    'analysis': json.dumps(analysis) if analysis else None,
+                    'analysis': None,
                     'label': ('GitHub reviewed advisory' if payload['source_id'] == 'github-advisories'
                               else f"{row['technology']} official source"),
                     'url': row['canonical_url'], 'stamp': now()})
+        if intelligence_configured() and intelligence_eligible(row['release_type'], payload['title'],
+                                                                payload['source_id'], row['description'], row['published_at']):
+            enqueue(db, 'analyze-brief', {'revision_id': payload['revision_id']},
+                    f"ai:{payload['revision_id']}:techwatch-source-v2")
+
+
+def process_ai_brief(job: dict):
+    revision_id = job['payload']['revision_id']
+    with Session() as db:
+        row = db.execute(text("SELECT b.id,b.status,b.intelligence_json,b.title,r.canonical_url,r.release_type,r.source_id,f.description "
+                              "FROM tech_briefs b JOIN technology_releases r ON r.id=b.release_id "
+                              "JOIN release_facts f ON f.revision_id=b.revision_id "
+                              "WHERE b.revision_id=:id LIMIT 1"), {'id': revision_id}).mappings().first()
+    if not row or row['status'] != 'needs_edit' or row['intelligence_json'] or not intelligence_configured():
+        return
+    reservation = reserve_ai(revision_id, urgent=row['release_type'] in ('security', 'deprecation')
+                             or row['source_id'] == 'github-advisories')
+    if reservation is None:
+        return
+    try:
+        analysis = analyze(row['title'], row['description'], row['canonical_url'])
+        if not analysis:
+            raise AnalysisError('AI is not configured')
+        usage = analysis.pop('_usage', {})
+        copy = {field: analysis[field] for field in ('title', 'summary', 'why_it_matters', 'next_action')}
+        with Session.begin() as db:
+            result = db.execute(text("UPDATE tech_briefs SET title=:title,summary=:summary,why_it_matters=:why,"
+                            "next_action=:action,intelligence_json=:analysis,status='review_required',updated_at=:stamp "
+                            "WHERE id=:id AND status='needs_edit' AND intelligence_json IS NULL"),
+                       {'title': copy['title'], 'summary': copy['summary'], 'why': copy['why_it_matters'],
+                        'action': copy['next_action'], 'analysis': json.dumps(analysis), 'stamp': now(), 'id': row['id']})
+            settle_ai(reservation, input_tokens=usage.get('input_tokens'), output_tokens=usage.get('output_tokens'),
+                      error=None if result.rowcount else 'draft_changed_during_analysis', db=db)
+    except Exception as error:
+        usage = error.usage if isinstance(error, AnalysisError) else {}
+        settle_ai(reservation, input_tokens=usage.get('input_tokens'),
+                  output_tokens=usage.get('output_tokens'), error=type(error).__name__)
 
 
 def process_release(job: dict):
@@ -539,7 +567,8 @@ def run_once():
     try:
         {'fetch-index': process_index, 'fetch-release': process_release, 'fetch-article': process_article,
          'generate-brief': process_brief,
-         'generate-rss-brief': process_rss_brief}[job['kind']](job)
+         'generate-rss-brief': process_rss_brief,
+         'analyze-brief': process_ai_brief}[job['kind']](job)
         finish_job(job['id'])
     except Exception as error:
         fail_job(job, error)

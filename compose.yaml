@@ -33,7 +33,7 @@ services:
       DATABASE_URL: postgresql+psycopg://techwire:${POSTGRES_PASSWORD:-local-development-only}@db:5432/techwire
       OFFLINE_MODE: ${OFFLINE_MODE:-0}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      AI_ENABLED: ${AI_ENABLED:-0}
     depends_on:
       api:
         condition: service_healthy
