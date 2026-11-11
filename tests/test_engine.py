@@ -423,6 +423,7 @@ def test_routine_publication_policy_requires_source_evidence_and_no_risk():
     assert not routine_auto_publishable(analysis, **{**kw, 'source_title': 'Security update for Kubernetes'})
     assert not routine_auto_publishable(analysis, **{**kw, 'published_at': '2026-11-01'})
     assert not routine_auto_publishable({**analysis, 'unknowns': ['Impact not confirmed']}, **kw)
+    assert routine_auto_publishable({**analysis, 'unknowns': ['Future timeline not stated']}, **kw)
     assert not routine_auto_publishable({**analysis, 'summary_evidence_quote': 'Unsupported claim'}, **kw)
 
 
@@ -472,6 +473,40 @@ def test_recent_untouched_draft_can_enter_bounded_ai_backfill(isolated_db, monke
     assert pipeline.schedule_ai_backfill(limit=1) == 0
     with isolated_db() as session:
         assert session.execute(text("SELECT count(*) FROM processing_jobs WHERE kind='analyze-brief'")).scalar_one() == 1
+
+
+def test_existing_valid_ai_draft_promotes_without_another_model_call(isolated_db, monkeypatch):
+    when = datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
+    source = ('Kubernetes adds a scheduling option for workloads using dedicated nodes. '
+              'Operators can enable the option in the scheduler configuration after reviewing the release notes. '
+              'The previous scheduling behaviour remains the default for existing clusters.')
+    xml = f'''<rss><channel><item><title>Kubernetes scheduling option</title>
+    <link>https://kubernetes.io/blog/scheduling-option/</link><description>{source}</description>
+    <pubDate>{when}</pubDate></item></channel></rss>'''
+    analysis = {'title': 'Kubernetes adds a scheduling option',
+                'summary': ('Kubernetes adds a scheduling option for workloads using dedicated nodes. '
+                            'Operators can enable it after reviewing the release notes. Existing clusters keep '
+                            'the previous scheduling behaviour by default.'),
+                'why_it_matters': 'Teams with dedicated nodes can evaluate the new scheduler option.',
+                'next_action': 'Review the release notes and scheduler configuration before enabling it.',
+                'severity': 'medium', 'confidence': 'high', 'affected_regions': [],
+                'unknowns': ['Future rollout timeline is not stated'],
+                'evidence_quote': 'Kubernetes adds a scheduling option for workloads using dedicated nodes.',
+                'summary_evidence_quote': 'Operators can enable the option in the scheduler configuration after reviewing the release notes.',
+                'rule_version': 'ai-evidence-v2', '_usage': {'input_tokens': 700, 'output_tokens': 250}}
+    monkeypatch.delenv('AUTO_PUBLISH_ROUTINE', raising=False)
+    pipeline.seed_rss_sources()
+    monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (xml, 200, None, None))
+    monkeypatch.setattr(pipeline, 'intelligence_configured', lambda: True)
+    monkeypatch.setattr(pipeline, 'analyze', lambda *args: dict(analysis))
+    pipeline.manual_recheck('kubernetes-blog'); drain()
+    assert not pipeline.published_items()
+    calls = ai_budget.usage_snapshot()['calls']
+    monkeypatch.setenv('AUTO_PUBLISH_ROUTINE', '1')
+    assert pipeline.publish_existing_routine_ai() == 1
+    assert pipeline.publish_existing_routine_ai() == 0
+    assert len(pipeline.published_items()) == 1
+    assert ai_budget.usage_snapshot()['calls'] == calls
 
 
 def test_ai_budget_is_idempotent_and_preserves_urgent_capacity(isolated_db, monkeypatch):

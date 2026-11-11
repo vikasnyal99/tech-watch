@@ -472,6 +472,47 @@ def schedule_ai_backfill(limit: int = 6) -> int:
     return created
 
 
+def publish_existing_routine_ai(limit: int = 20) -> int:
+    """Recheck valid, unedited AI drafts against the current narrow publication policy."""
+    if os.getenv('AUTO_PUBLISH_ROUTINE') != '1':
+        return 0
+    published = 0
+    with Session.begin() as db:
+        candidates = db.execute(text("SELECT b.id,b.intelligence_json,r.release_type,r.published_at,"
+                                     "v.raw_text,f.description FROM tech_briefs b "
+                                     "JOIN technology_releases r ON r.id=b.release_id "
+                                     "JOIN release_revisions v ON v.id=b.revision_id "
+                                     "JOIN release_facts f ON f.revision_id=b.revision_id "
+                                     "WHERE b.status='review_required' AND b.intelligence_json IS NOT NULL "
+                                     "AND v.content_hash=r.latest_hash "
+                                     "AND NOT EXISTS (SELECT 1 FROM review_audit a WHERE a.brief_id=b.id) "
+                                     "ORDER BY b.updated_at DESC LIMIT 100")).mappings().all()
+        for row in candidates:
+            analysis = json.loads(row['intelligence_json'])
+            if not routine_auto_publishable(analysis, source_title=row['raw_text'].split('\n', 1)[0],
+                                            source_text=row['description'],
+                                            release_type=row['release_type'],
+                                            published_at=row['published_at']):
+                continue
+            result = db.execute(text("UPDATE tech_briefs SET status='published',updated_at=:stamp "
+                                     "WHERE id=:id AND status='review_required' "
+                                     "AND NOT EXISTS (SELECT 1 FROM review_audit WHERE brief_id=:id)"),
+                                {'stamp': now(), 'id': row['id']})
+            if result.rowcount:
+                db.execute(text("UPDATE tech_briefs SET status='superseded',updated_at=:stamp "
+                                "WHERE release_id=(SELECT release_id FROM tech_briefs WHERE id=:id) "
+                                "AND id<>:id AND status='published'"),
+                           {'stamp': now(), 'id': row['id']})
+                db.execute(text('INSERT INTO review_audit (id,brief_id,action,actor,created_at) '
+                                'VALUES (:id,:brief,:action,:actor,:stamp)'),
+                           {'id': uid(), 'brief': row['id'], 'action': 'auto_publish',
+                            'actor': 'routine-policy-v2', 'stamp': now()})
+                published += 1
+                if published >= limit:
+                    break
+    return published
+
+
 def process_ai_brief(job: dict):
     revision_id = job['payload']['revision_id']
     with Session() as db:
