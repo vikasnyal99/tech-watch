@@ -10,9 +10,9 @@ import re
 from sqlalchemy import text
 from backend.db import Session, engine
 from backend.briefing_copy import validate_briefing_copy
-from backend.intelligence import analyze, configured as intelligence_configured, eligible as intelligence_eligible, AnalysisError
-from backend.ai_budget import PROMPT_VERSION, reserve as reserve_ai, settle as settle_ai
-from backend.publication_policy import routine_auto_publishable
+from backend.intelligence import analyze, verify, configured as intelligence_configured, eligible as intelligence_eligible, AnalysisError
+from backend.ai_budget import PROMPT_VERSION, VERIFY_VERSION, reserve as reserve_ai, settle as settle_ai
+from backend.publication_policy import routine_auto_publishable, needs_second_check, verified_auto_publishable
 from backend.fetcher import fetch_html
 from backend.python_source import discover_releases, parse_release
 from backend.rss_source import (SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, SOURCE_ADAPTERS,
@@ -452,8 +452,7 @@ def schedule_ai_backfill(limit: int = 6) -> int:
                                      "AND NOT EXISTS (SELECT 1 FROM review_audit a WHERE a.brief_id=b.id) "
                                      "AND NOT EXISTS (SELECT 1 FROM ai_requests a WHERE a.revision_id=b.revision_id "
                                      "AND a.prompt_version=:version) "
-                                     "ORDER BY CASE WHEN r.release_type IN ('security','deprecation') THEN 1 ELSE 0 END, "
-                                     "r.published_at DESC LIMIT 100"),
+                                     "ORDER BY r.published_at DESC,b.score DESC LIMIT 100"),
                                 {'version': PROMPT_VERSION}).mappings().all()
         created = 0
         for row in candidates:
@@ -513,6 +512,41 @@ def publish_existing_routine_ai(limit: int = 20) -> int:
     return published
 
 
+def schedule_verify_existing(limit: int = 6) -> int:
+    """Queue a second check for recent consequential AI drafts already held."""
+    if not intelligence_configured() or os.getenv('AUTO_PUBLISH_ROUTINE') != '1':
+        return 0
+    with Session.begin() as db:
+        candidates = db.execute(text("SELECT b.id,b.revision_id,b.intelligence_json,v.raw_text,"
+                                     "r.release_type,r.published_at,f.description "
+                                     "FROM tech_briefs b JOIN technology_releases r ON r.id=b.release_id "
+                                     "JOIN release_revisions v ON v.id=b.revision_id "
+                                     "JOIN release_facts f ON f.revision_id=b.revision_id "
+                                     "WHERE b.status='review_required' AND b.intelligence_json IS NOT NULL "
+                                     "AND v.content_hash=r.latest_hash "
+                                     "AND NOT EXISTS (SELECT 1 FROM review_audit a WHERE a.brief_id=b.id) "
+                                     "AND NOT EXISTS (SELECT 1 FROM ai_requests a WHERE a.revision_id=b.revision_id "
+                                     "AND a.prompt_version=:version) "
+                                     "ORDER BY b.score DESC,r.published_at DESC LIMIT 100"),
+                                {'version': VERIFY_VERSION}).mappings().all()
+        created = 0
+        for row in candidates:
+            analysis = json.loads(row['intelligence_json'])
+            if not needs_second_check(analysis, source_title=row['raw_text'].split('\n', 1)[0],
+                                      source_text=row['description'], release_type=row['release_type'],
+                                      published_at=row['published_at']):
+                continue
+            key = f"verify:{row['revision_id']}:{VERIFY_VERSION}"
+            if db.execute(text('SELECT 1 FROM processing_jobs WHERE idempotency_key=:key'),
+                          {'key': key}).first():
+                continue
+            enqueue(db, 'verify-brief', {'revision_id': row['revision_id']}, key)
+            created += 1
+            if created >= limit:
+                break
+    return created
+
+
 def process_ai_brief(job: dict):
     revision_id = job['payload']['revision_id']
     with Session() as db:
@@ -540,6 +574,9 @@ def process_ai_brief(job: dict):
         automatic = os.getenv('AUTO_PUBLISH_ROUTINE') == '1' and routine_auto_publishable(
             analysis, source_title=row['title'], source_text=row['description'],
             release_type=row['release_type'], published_at=row['published_at'])
+        second_check = os.getenv('AUTO_PUBLISH_ROUTINE') == '1' and not automatic and needs_second_check(
+            analysis, source_title=row['title'], source_text=row['description'],
+            release_type=row['release_type'], published_at=row['published_at'])
         with Session.begin() as db:
             result = db.execute(text("UPDATE tech_briefs SET title=:title,summary=:summary,why_it_matters=:why,"
                             "next_action=:action,intelligence_json=:analysis,status=:status,updated_at=:stamp "
@@ -560,8 +597,69 @@ def process_ai_brief(job: dict):
                                 'VALUES (:id,:brief,:action,:actor,:stamp)'),
                            {'id': uid(), 'brief': row['id'], 'action': 'auto_publish',
                             'actor': 'routine-policy-v1', 'stamp': now()})
+            if result.rowcount and second_check:
+                enqueue(db, 'verify-brief', {'revision_id': revision_id},
+                        f'verify:{revision_id}:{VERIFY_VERSION}')
             settle_ai(reservation, input_tokens=usage.get('input_tokens'), output_tokens=usage.get('output_tokens'),
                       error=None if result.rowcount else 'draft_changed_during_analysis', db=db)
+    except Exception as error:
+        usage = error.usage if isinstance(error, AnalysisError) else {}
+        settle_ai(reservation, input_tokens=usage.get('input_tokens'),
+                  output_tokens=usage.get('output_tokens'),
+                  error=(str(error) if isinstance(error, AnalysisError) else type(error).__name__))
+
+
+def process_verify_brief(job: dict):
+    revision_id = job['payload']['revision_id']
+    with Session() as db:
+        row = db.execute(text("SELECT b.id,b.status,b.intelligence_json,b.title,b.summary,b.why_it_matters,"
+                              "b.next_action,r.canonical_url,r.release_type,r.published_at,r.latest_hash,"
+                              "v.content_hash,v.raw_text,f.description FROM tech_briefs b "
+                              "JOIN technology_releases r ON r.id=b.release_id "
+                              "JOIN release_revisions v ON v.id=b.revision_id "
+                              "JOIN release_facts f ON f.revision_id=b.revision_id "
+                              "WHERE b.revision_id=:id LIMIT 1"), {'id': revision_id}).mappings().first()
+        was_edited = bool(row and db.execute(text('SELECT 1 FROM review_audit WHERE brief_id=:id LIMIT 1'),
+                                             {'id': row['id']}).first())
+    if (not row or row['status'] != 'review_required' or not row['intelligence_json']
+            or row['content_hash'] != row['latest_hash'] or was_edited
+            or not intelligence_configured() or os.getenv('AUTO_PUBLISH_ROUTINE') != '1'):
+        return
+    analysis = json.loads(row['intelligence_json'])
+    source_title = row['raw_text'].split('\n', 1)[0]
+    if not needs_second_check(analysis, source_title=source_title, source_text=row['description'],
+                              release_type=row['release_type'], published_at=row['published_at']):
+        return
+    reservation = reserve_ai(revision_id, urgent=True, prompt_version=VERIFY_VERSION)
+    if reservation is None:
+        return
+    try:
+        verdict = verify(source_title, row['description'], row['canonical_url'], analysis)
+        if not verdict:
+            raise AnalysisError('AI verification is not configured')
+        usage = verdict.pop('_usage', {})
+        publish = verified_auto_publishable(analysis, verdict, source_text=row['description'])
+        analysis['verification'] = verdict
+        with Session.begin() as db:
+            result = db.execute(text("UPDATE tech_briefs SET intelligence_json=:analysis,status=:status,"
+                                     "updated_at=:stamp WHERE id=:id AND status='review_required' "
+                                     "AND NOT EXISTS (SELECT 1 FROM review_audit WHERE brief_id=:id) "
+                                     "AND EXISTS (SELECT 1 FROM technology_releases r JOIN release_revisions v "
+                                     "ON v.release_id=r.id WHERE v.id=:revision AND r.latest_hash=v.content_hash)"),
+                                {'analysis': json.dumps(analysis),
+                                 'status': 'published' if publish else 'review_required',
+                                 'stamp': now(), 'id': row['id'], 'revision': revision_id})
+            if result.rowcount and publish:
+                db.execute(text("UPDATE tech_briefs SET status='superseded',updated_at=:stamp "
+                                "WHERE release_id=(SELECT release_id FROM tech_briefs WHERE id=:id) "
+                                "AND id<>:id AND status='published'"),
+                           {'stamp': now(), 'id': row['id']})
+                db.execute(text('INSERT INTO review_audit (id,brief_id,action,actor,created_at) '
+                                'VALUES (:id,:brief,:action,:actor,:stamp)'),
+                           {'id': uid(), 'brief': row['id'], 'action': 'auto_publish_verified',
+                            'actor': 'two-pass-policy-v1', 'stamp': now()})
+            settle_ai(reservation, input_tokens=usage.get('input_tokens'), output_tokens=usage.get('output_tokens'),
+                      error=None if result.rowcount else 'draft_changed_during_verification', db=db)
     except Exception as error:
         usage = error.usage if isinstance(error, AnalysisError) else {}
         settle_ai(reservation, input_tokens=usage.get('input_tokens'),
@@ -628,7 +726,7 @@ def source_summary(value: str) -> str:
 def process_brief(job: dict):
     revision_id = job['payload']['revision_id']
     with Session.begin() as db:
-        row = db.execute(text('SELECT r.id revision_id,r.release_id,v.version,v.release_type,v.canonical_url,f.description '
+        row = db.execute(text('SELECT r.id revision_id,r.release_id,v.version,v.release_type,v.canonical_url,v.published_at,v.source_id,f.description '
                               'FROM release_revisions r JOIN technology_releases v ON v.id=r.release_id '
                               'JOIN release_facts f ON f.revision_id=r.id WHERE r.id=:id LIMIT 1'),
                          {'id': revision_id}).mappings().first()
@@ -657,6 +755,10 @@ def process_brief(job: dict):
                     'score': 75 if row['release_type']=='security' else 50, 'status': status,
                     'fictional': int(fictional), 'label': 'Fictional recorded sample' if fictional else 'Python.org official release',
                     'url': None if fictional else row['canonical_url'], 'stamp': stamp})
+        if not fictional and intelligence_configured() and intelligence_eligible(
+                row['release_type'], copy['title'], row['source_id'], row['description'], row['published_at']):
+            enqueue(db, 'analyze-brief', {'revision_id': revision_id},
+                    f'ai:{revision_id}:{PROMPT_VERSION}')
 
 
 def run_once():
@@ -667,7 +769,7 @@ def run_once():
         {'fetch-index': process_index, 'fetch-release': process_release, 'fetch-article': process_article,
          'generate-brief': process_brief,
          'generate-rss-brief': process_rss_brief,
-         'analyze-brief': process_ai_brief}[job['kind']](job)
+         'analyze-brief': process_ai_brief, 'verify-brief': process_verify_brief}[job['kind']](job)
         finish_job(job['id'])
     except Exception as error:
         fail_job(job, error)

@@ -8,6 +8,7 @@ from backend.db import Session, engine
 
 MODEL = 'gpt-6-luna'
 PROMPT_VERSION = 'techwatch-source-v5'
+VERIFY_VERSION = 'techwatch-verify-v1'
 # OpenAI Standard USD per million tokens, reviewed 2026-11-12.
 INPUT_MICROUSD_PER_TOKEN = 0.10
 OUTPUT_MICROUSD_PER_TOKEN = 0.50
@@ -31,7 +32,8 @@ def monthly_cap() -> int:
     return DEFAULT_MONTHLY_CAP_MICROUSD
 
 
-def reserve(revision_id: str, *, urgent: bool = False) -> str | None:
+def reserve(revision_id: str, *, urgent: bool = False,
+            prompt_version: str = PROMPT_VERSION) -> str | None:
     """Return a reservation id; None means duplicate or budget exhausted."""
     stamp = utc_now()
     month = stamp.strftime('%Y-%m')
@@ -55,7 +57,7 @@ def reserve(revision_id: str, *, urgent: bool = False) -> str | None:
         result = db.execute(text('INSERT INTO ai_requests (id,revision_id,prompt_version,model,status,priority,month,reserved_microusd,created_at,updated_at) '
                                  'VALUES (:id,:revision,:version,:model,:status,:priority,:month,:reserve,:stamp,:stamp) '
                                  'ON CONFLICT(revision_id,prompt_version) DO NOTHING'),
-                            {'id': ident, 'revision': revision_id, 'version': PROMPT_VERSION,
+                            {'id': ident, 'revision': revision_id, 'version': prompt_version,
                              'model': MODEL, 'status': 'reserved', 'priority': 'urgent' if urgent else 'routine', 'month': month,
                              'reserve': RESERVATION_MICROUSD, 'stamp': stamp.isoformat(timespec='seconds')})
         if not result.rowcount:

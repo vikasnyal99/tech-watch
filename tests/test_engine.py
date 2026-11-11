@@ -20,9 +20,9 @@ from backend.special_sources import (parse_anthropic_news, article_excerpt,
 from backend.data import TECHNOLOGIES
 from backend.feed_selection import importance
 from backend.service_health import parse_status_page, parse_aws_events, parse_google_events, parse_azure_feed, PROVIDERS
-from backend.intelligence import analyze, AnalysisError
+from backend.intelligence import analyze, verify, AnalysisError
 from backend.intelligence import configured as ai_configured, eligible as ai_eligible
-from backend.publication_policy import routine_auto_publishable
+from backend.publication_policy import routine_auto_publishable, needs_second_check, verified_auto_publishable
 
 
 @pytest.fixture
@@ -428,6 +428,105 @@ def test_routine_publication_policy_requires_source_evidence_and_no_risk():
     assert not routine_auto_publishable({**analysis, 'unknowns': ['Impact not confirmed']}, **kw)
     assert routine_auto_publishable({**analysis, 'unknowns': ['Future timeline not stated']}, **kw)
     assert not routine_auto_publishable({**analysis, 'summary_evidence_quote': 'Unsupported claim'}, **kw)
+
+
+def test_second_check_requires_independent_exact_source_support():
+    source = ('Cloudflare published a security release for its edge service. '
+              'The release notes say the issue affects a documented configuration and provide a mitigation. '
+              'Operators should review the advisory and compare their configuration with the affected scope. '
+              'The provider has not stated that every deployment is affected.')
+    analysis = {
+        'title': 'Cloudflare edge security release',
+        'summary': ('Cloudflare published a security release for its edge service. The advisory describes '
+                    'an affected configuration and mitigation. It does not say every deployment is affected, '
+                    'so operators should compare their setup with the documented scope.'),
+        'why_it_matters': 'Teams using the affected configuration may need the mitigation.',
+        'next_action': 'Compare your configuration with the advisory scope.',
+        'severity': 'high', 'confidence': 'high',
+        'evidence_quote': 'The release notes say the issue affects a documented configuration and provide a mitigation.',
+        'summary_evidence_quote': 'Cloudflare published a security release for its edge service. The release notes say the issue affects a documented configuration and provide a mitigation.',
+        'rule_version': 'ai-evidence-v2',
+    }
+    kw = {'source_title': 'Cloudflare security release', 'source_text': source,
+          'release_type': 'security', 'published_at': '2026-11-12',
+          'today': datetime(2026, 11, 12, tzinfo=timezone.utc).date()}
+    assert needs_second_check(analysis, **kw)
+    verdict = {'supported': True, 'severity': 'high', 'contradiction': '', 'material_unknown': '',
+               'title_quote': 'Cloudflare published a security release for its edge service.',
+               'summary_quote': 'The release notes say the issue affects a documented configuration and provide a mitigation.',
+               'action_quote': 'Operators should review the advisory and compare their configuration with the affected scope.'}
+    assert verified_auto_publishable(analysis, verdict, source_text=source)
+    assert not verified_auto_publishable(analysis, {**verdict, 'severity': 'medium'}, source_text=source)
+    assert not verified_auto_publishable(analysis, {**verdict, 'summary_quote': 'Every customer is affected.'}, source_text=source)
+    assert not verified_auto_publishable(analysis, {**verdict, 'material_unknown': 'Affected versions'}, source_text=source)
+
+
+def test_verifier_uses_bounded_structured_response(monkeypatch):
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
+    monkeypatch.setenv('AI_ENABLED', '1')
+    monkeypatch.delenv('OFFLINE_MODE', raising=False)
+    verdict = {'supported': False, 'severity': 'unknown', 'title_quote': '',
+               'summary_quote': '', 'action_quote': '', 'contradiction': '',
+               'material_unknown': 'The source does not identify affected versions.'}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {'status': 'completed', 'usage': {'input_tokens': 500, 'output_tokens': 80},
+                    'output': [{'content': [{'type': 'output_text', 'text': __import__('json').dumps(verdict)}]}]}
+
+    calls = []
+    monkeypatch.setattr('backend.intelligence.httpx.post', lambda *args, **kwargs: (calls.append(kwargs), Response())[1])
+    draft = {'title': 'Security update', 'summary': 'A source-backed summary',
+             'why_it_matters': 'Affected operators should check scope.',
+             'next_action': 'Review the advisory.', 'severity': 'high'}
+    checked = verify('Security update', 'Official source text', 'https://example.com/advisory', draft)
+    assert checked['supported'] is False and checked['_usage']['output_tokens'] == 80
+    assert calls[0]['json']['max_output_tokens'] == 450
+    assert calls[0]['json']['text']['format']['strict'] is True
+
+
+@pytest.mark.parametrize('supported', [True, False])
+def test_consequential_brief_requires_second_ai_pass(isolated_db, monkeypatch, supported):
+    when = datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
+    source = ('Cloudflare published a security release for its edge service. '
+              'The release notes say the issue affects a documented configuration and provide a mitigation. '
+              'Operators should review the advisory and compare their configuration with the affected scope. '
+              'The provider has not stated that every deployment is affected.')
+    xml = f'''<rss><channel><item><title>Cloudflare security release</title>
+    <link>https://blog.cloudflare.com/edge-security-release/</link><description>{source}</description>
+    <pubDate>{when}</pubDate></item></channel></rss>'''
+    analysis = {'title': 'Cloudflare edge security release',
+                'summary': ('Cloudflare published a security release for its edge service. The advisory describes '
+                            'an affected configuration and mitigation. It does not say every deployment is affected, '
+                            'so operators should compare their setup with the documented scope.'),
+                'why_it_matters': 'Teams using the affected configuration may need the mitigation.',
+                'next_action': 'Compare your configuration with the advisory scope.',
+                'severity': 'high', 'confidence': 'high', 'affected_regions': [], 'unknowns': [],
+                'evidence_quote': 'The release notes say the issue affects a documented configuration and provide a mitigation.',
+                'summary_evidence_quote': 'Cloudflare published a security release for its edge service. The release notes say the issue affects a documented configuration and provide a mitigation.',
+                'rule_version': 'ai-evidence-v2', '_usage': {'input_tokens': 800, 'output_tokens': 300}}
+    verdict = {'supported': supported, 'severity': 'high', 'contradiction': '', 'material_unknown': '',
+               'title_quote': 'Cloudflare published a security release for its edge service.',
+               'summary_quote': 'The release notes say the issue affects a documented configuration and provide a mitigation.',
+               'action_quote': 'Operators should review the advisory and compare their configuration with the affected scope.',
+               '_usage': {'input_tokens': 600, 'output_tokens': 150}}
+    monkeypatch.setenv('AUTO_PUBLISH_ROUTINE', '1')
+    pipeline.seed_rss_sources()
+    monkeypatch.setattr(pipeline, 'get_html', lambda source, url, **kw: (xml, 200, None, None))
+    monkeypatch.setattr(pipeline, 'intelligence_configured', lambda: True)
+    monkeypatch.setattr(pipeline, 'analyze', lambda *args: dict(analysis))
+    monkeypatch.setattr(pipeline, 'verify', lambda *args: dict(verdict))
+    pipeline.manual_recheck('cloudflare-blog'); drain()
+    assert ai_budget.usage_snapshot()['calls'] == 2
+    assert len(pipeline.published_items()) == int(supported)
+    if supported:
+        with isolated_db() as session:
+            assert session.execute(text("SELECT action FROM review_audit WHERE actor='two-pass-policy-v1'")).scalar_one() == 'auto_publish_verified'
+    else:
+        assert pipeline.review_queue()[0]['intelligence']['verification']['supported'] is False
 
 
 def test_routine_ai_publishes_without_review_but_records_audit(isolated_db, monkeypatch):

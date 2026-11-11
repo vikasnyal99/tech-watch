@@ -20,9 +20,11 @@ the mobile app, or a message. Saving the key does not activate calls:
 `AI_ENABLED` defaults to `0`. Once the separate project spending limit is
 configured, set `AI_ENABLED=1` and recreate only the worker. The worker uses
 `gpt-6-luna`; it has its own fixed $5 monthly budget, daily call limits, and
-source eligibility checks. Set `AUTO_PUBLISH_ROUTINE=1` to allow only fresh,
-well-supported routine briefs to publish automatically; security, outages,
-breaking changes, and uncertain copy remain in review. Run `docker compose -f compose.prod.yaml exec -T
+source eligibility checks. Set `AUTO_PUBLISH_ROUTINE=1` to allow fresh,
+well-supported routine briefs to publish automatically. Consequential RSS
+briefs receive a second AI claim check against the retained official source;
+only corroborated drafts publish. Failed or thin-source drafts stay unpublished,
+so no daily reviewer is required. Run `docker compose -f compose.prod.yaml exec -T
 worker python -m backend.review_cli ai-usage` to see usage without printing the
 key. Provider billing is authoritative; the app ledger conservatively counts
 unknown-usage failures at its request reservation ceiling.
