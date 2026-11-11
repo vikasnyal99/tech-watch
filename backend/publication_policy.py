@@ -10,13 +10,17 @@ RISK_WORDS = re.compile(
     r'urgent|emergency|remov\w*|no.longer|disabled.by.default)\b', re.I)
 RISK_UNKNOWN = re.compile(r'\b(?:outage|incident|impact|expos\w*|mitigation|'
                           r'affected regions?|affected users?|affected services?|eligibility|availability)\b', re.I)
+EDITORIAL_NOISE = re.compile(r'\b(?:gsoc|summer of code|hackathon|meetup|conference|webinar|'
+                             r'podcast|newsletter|scholarship|giveaway|hiring|career|'
+                             r'promotion|discount|free trial|anniversary)\b', re.I)
 
 
 def routine_auto_publishable(analysis: dict, *, source_title: str, source_text: str,
                              release_type: str, published_at: str | None,
                              today: date | None = None) -> bool:
     """Fail closed unless a fresh, low-risk AI draft has exact source support."""
-    if release_type not in ('update', 'release') or RISK_WORDS.search(source_title + ' ' + source_text[:500]):
+    if (release_type not in ('update', 'release') or EDITORIAL_NOISE.search(source_title)
+            or RISK_WORDS.search(source_title + ' ' + source_text[:500])):
         return False
     if len(source_text.strip()) < 200 or analysis.get('rule_version') != 'ai-evidence-v2':
         return False

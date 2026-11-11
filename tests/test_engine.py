@@ -396,6 +396,8 @@ def test_ai_requires_explicit_switch_and_significant_recent_source(monkeypatch):
                        today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
     assert ai_eligible('update', 'Routine developer update', 'cloudflare-blog', text_body, '2026-11-12',
                        today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
+    assert not ai_eligible('update', 'Rust Summer of Code results', 'rust-blog', text_body, '2026-11-12',
+                           today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
     assert not ai_eligible('security', 'Old security release', 'node-security', text_body, '2026-09-01',
                            today=datetime(2026, 11, 12, tzinfo=timezone.utc).date())
 
@@ -421,6 +423,7 @@ def test_routine_publication_policy_requires_source_evidence_and_no_risk():
           'release_type': 'update', 'published_at': '2026-11-12', 'today': today}
     assert routine_auto_publishable(analysis, **kw)
     assert not routine_auto_publishable(analysis, **{**kw, 'source_title': 'Security update for Kubernetes'})
+    assert not routine_auto_publishable(analysis, **{**kw, 'source_title': 'Kubernetes Summer of Code results'})
     assert not routine_auto_publishable(analysis, **{**kw, 'published_at': '2026-11-01'})
     assert not routine_auto_publishable({**analysis, 'unknowns': ['Impact not confirmed']}, **kw)
     assert routine_auto_publishable({**analysis, 'unknowns': ['Future timeline not stated']}, **kw)
@@ -455,6 +458,9 @@ def test_routine_ai_publishes_without_review_but_records_audit(isolated_db, monk
     assert len(pipeline.published_items()) == 1
     with isolated_db() as session:
         assert session.execute(text("SELECT action FROM review_audit WHERE actor='routine-policy-v1'")).scalar_one() == 'auto_publish'
+    published_id = pipeline.published_items()[0]['id']
+    assert pipeline.review_decision(published_id, 'withdraw')['status'] == 'withdrawn'
+    assert not pipeline.published_items()
 
 
 def test_recent_untouched_draft_can_enter_bounded_ai_backfill(isolated_db, monkeypatch):

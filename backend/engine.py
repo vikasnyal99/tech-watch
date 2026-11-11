@@ -737,14 +737,15 @@ def draft_detail(brief_id: str):
 
 
 def review_decision(brief_id: str, action: str, actor: str = 'local-admin'):
-    if action not in ('publish', 'reject'):
+    if action not in ('publish', 'reject', 'withdraw'):
         raise ValueError('invalid review action')
     with Session.begin() as db:
         row = db.execute(text('SELECT * FROM tech_briefs WHERE id=:id'), {'id': brief_id}).mappings().first()
         if not row:
             raise ValueError('brief not found')
         row = dict(row)
-        if row['status'] not in ('review_required', 'needs_edit'):
+        allowed = ('published',) if action == 'withdraw' else ('review_required', 'needs_edit')
+        if row['status'] not in allowed:
             raise ValueError('brief is not awaiting review')
         if action == 'publish':
             errors = validate_briefing_copy(row)
@@ -752,7 +753,7 @@ def review_decision(brief_id: str, action: str, actor: str = 'local-admin'):
                 raise ValueError('brief copy needs editing: ' + ', '.join(errors))
             if not db.execute(text('SELECT id FROM release_facts WHERE revision_id=:id'), {'id': row['revision_id']}).first():
                 raise ValueError('brief has no source evidence')
-        status = 'published' if action == 'publish' else 'rejected'
+        status = {'publish': 'published', 'reject': 'rejected', 'withdraw': 'withdrawn'}[action]
         if status == 'published':
             db.execute(text("UPDATE tech_briefs SET status='superseded',updated_at=:stamp WHERE release_id=:release AND status='published'"),
                        {'stamp': now(), 'release': row['release_id']})

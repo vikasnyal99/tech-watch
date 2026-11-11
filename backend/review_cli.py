@@ -19,7 +19,7 @@ def main():
     edit.add_argument('id')
     for field in ('title', 'summary', 'why_it_matters', 'next_action', 'severity', 'evidence_quote'):
         edit.add_argument('--' + field.replace('_', '-'))
-    for action in ('publish', 'reject'):
+    for action in ('publish', 'reject', 'withdraw'):
         command = sub.add_parser(action)
         command.add_argument('id')
     args = parser.parse_args()

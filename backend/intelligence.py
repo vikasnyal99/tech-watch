@@ -7,6 +7,7 @@ import httpx
 
 from backend.briefing_copy import validate_briefing_copy
 from backend.ai_budget import MODEL, MAX_SOURCE_CHARS, MAX_OUTPUT_TOKENS
+from backend.publication_policy import EDITORIAL_NOISE
 
 SEVERITIES = ('critical', 'high', 'medium', 'low', 'unknown')
 SCHEMA = {
@@ -36,7 +37,7 @@ def configured() -> bool:
 def eligible(kind: str, title: str, source_id: str, source_text: str,
              published_at: str | None, today: date | None = None) -> bool:
     """Spend only on substantial, recent updates with enough retained evidence."""
-    if len(source_text.strip()) < 100:
+    if len(source_text.strip()) < 100 or EDITORIAL_NOISE.search(title):
         return False
     try:
         age = ((today or date.today()) - date.fromisoformat((published_at or '')[:10])).days
