@@ -76,7 +76,7 @@ def analyze(source_title: str, source_text: str, source_url: str) -> dict | None
              'you may reuse summary_evidence_quote. Use an empty evidence quote only for unknown severity. '
              'summary_evidence_quote must be an exact 45–350 character passage supporting the main summary claim. '
              'Summary: 2–4 clear sentences, 130–510 characters, explaining what changed, scope and relevant uncertainty. '
-             'Title <=55 characters; why_it_matters <=110; next_action <=95; all four fields together <=760. '
+             'Title <=50 characters; why_it_matters <=90; next_action <=75; all four fields together <=730. '
              'Avoid hype, filler and generic advice. Give a concrete action only if the source supports one.')},
             {'role': 'user', 'content': json.dumps({'title': source_title, 'url': source_url,
                                                    'source_text': source_text}, separators=(',', ':'))},

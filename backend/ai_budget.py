@@ -7,7 +7,7 @@ from sqlalchemy import text
 from backend.db import Session, engine
 
 MODEL = 'gpt-6-luna'
-PROMPT_VERSION = 'techwatch-source-v4'
+PROMPT_VERSION = 'techwatch-source-v5'
 # OpenAI Standard USD per million tokens, reviewed 2026-11-12.
 INPUT_MICROUSD_PER_TOKEN = 0.10
 OUTPUT_MICROUSD_PER_TOKEN = 0.50

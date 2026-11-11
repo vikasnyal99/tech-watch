@@ -14,7 +14,7 @@ from backend.feed_selection import personal_feed, trending_feed
 from backend.ai_budget import usage_snapshot
 from backend.service_health import service_snapshot
 from backend.pipeline import ingest
-from backend.engine import (seed_source, seed_rss_sources, published_items, review_queue, review_decision,
+from backend.engine import (seed_source, seed_rss_sources, published_items, review_queue, attention_queue, review_decision,
                             manual_recheck, edit_brief, source_health, configure_source, event_detail, draft_detail)
 
 @asynccontextmanager
@@ -198,6 +198,11 @@ def admin_guard(token: str | None):
 def admin_review_queue(x_admin_token: str | None = Header(None)):
     admin_guard(x_admin_token)
     return {'items': review_queue()}
+
+@app.get('/admin/attention')
+def admin_attention(x_admin_token: str | None = Header(None)):
+    admin_guard(x_admin_token)
+    return {'items': attention_queue()}
 
 @app.get('/admin/review/{brief_id}')
 def admin_review_detail(brief_id: str, x_admin_token: str | None = Header(None)):

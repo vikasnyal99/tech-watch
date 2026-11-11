@@ -561,6 +561,11 @@ def test_failed_ai_keeps_source_draft_and_records_token_usage(isolated_db, monke
     monkeypatch.setattr(pipeline, 'analyze', bad_analysis)
     pipeline.manual_recheck('github-changelog'); drain()
     assert pipeline.review_queue()[0]['status'] == 'needs_edit'
+    assert len(pipeline.attention_queue()) == 1
+    monkeypatch.setenv('ADMIN_TOKEN', 'local-test-token')
+    with TestClient(main.app) as client:
+        assert client.get('/admin/attention').status_code == 403
+        assert len(client.get('/admin/attention', headers={'X-Admin-Token': 'local-test-token'}).json()['items']) == 1
     assert not pipeline.published_items()
     assert ai_budget.usage_snapshot()['failed'] == 1
     assert ai_budget.usage_snapshot()['spent_usd'] == 0.000195

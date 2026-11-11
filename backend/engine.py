@@ -721,6 +721,27 @@ def review_queue():
         return result
 
 
+def attention_queue(limit: int = 10):
+    """A short, recent exception queue for the operator's daily review."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=3)).date().isoformat()
+    with Session() as db:
+        result = rows(db.execute(text("SELECT b.id,b.title,b.summary,b.status,b.source_url,b.source_label,"
+                                      "b.score,b.created_at,b.intelligence_json,r.technology,r.release_type,"
+                                      "r.published_at,substr(f.evidence_excerpt,1,320) evidence_preview "
+                                      "FROM tech_briefs b JOIN technology_releases r ON r.id=b.release_id "
+                                      "JOIN release_facts f ON f.revision_id=b.revision_id "
+                                      "WHERE b.status IN ('review_required','needs_edit') "
+                                      "AND r.published_at>=:cutoff "
+                                      "AND (r.release_type IN ('incident','security','deprecation') OR b.score>=70) "
+                                      "ORDER BY CASE r.release_type WHEN 'incident' THEN 0 "
+                                      "WHEN 'security' THEN 1 WHEN 'deprecation' THEN 2 ELSE 3 END, "
+                                      "b.score DESC,r.published_at DESC LIMIT :limit"),
+                                 {'cutoff': cutoff, 'limit': limit}))
+    for item in result:
+        item['intelligence'] = json.loads(item.pop('intelligence_json')) if item['intelligence_json'] else None
+    return result
+
+
 def draft_detail(brief_id: str):
     with Session() as db:
         brief = db.execute(text('SELECT b.*,r.technology,r.version,r.release_type,r.published_at '
