@@ -450,9 +450,11 @@ def schedule_ai_backfill(limit: int = 6) -> int:
                                      "WHERE b.status IN ('needs_edit','review_required') AND b.intelligence_json IS NULL "
                                      "AND v.content_hash=r.latest_hash AND r.version LIKE 'rss-%' "
                                      "AND NOT EXISTS (SELECT 1 FROM review_audit a WHERE a.brief_id=b.id) "
-                                     "AND NOT EXISTS (SELECT 1 FROM ai_requests a WHERE a.revision_id=b.revision_id) "
+                                     "AND NOT EXISTS (SELECT 1 FROM ai_requests a WHERE a.revision_id=b.revision_id "
+                                     "AND a.prompt_version=:version) "
                                      "ORDER BY CASE WHEN r.release_type IN ('security','deprecation') THEN 1 ELSE 0 END, "
-                                     "r.published_at DESC LIMIT 100")).mappings().all()
+                                     "r.published_at DESC LIMIT 100"),
+                                {'version': PROMPT_VERSION}).mappings().all()
         created = 0
         for row in candidates:
             if not intelligence_eligible(row['release_type'], row['title'], row['source_id'],
@@ -522,7 +524,8 @@ def process_ai_brief(job: dict):
     except Exception as error:
         usage = error.usage if isinstance(error, AnalysisError) else {}
         settle_ai(reservation, input_tokens=usage.get('input_tokens'),
-                  output_tokens=usage.get('output_tokens'), error=type(error).__name__)
+                  output_tokens=usage.get('output_tokens'),
+                  error=(str(error) if isinstance(error, AnalysisError) else type(error).__name__))
 
 
 def process_release(job: dict):

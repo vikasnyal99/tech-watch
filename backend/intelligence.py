@@ -71,7 +71,8 @@ def analyze(source_title: str, source_text: str, source_url: str) -> dict | None
              'Use only stated facts. Unknown scope stays unknown; never guess affected users, versions or regions. '
              'Critical means a confirmed widespread outage or actively exploited critical vulnerability; high means a confirmed '
              'serious security issue, breaking change or substantial disruption. Otherwise choose medium, low or unknown. '
-             'The evidence quote must exactly match source text and support the severity; use an empty quote for unknown. '
+             'The evidence quote must exactly match source text and support the severity; for low or medium severity, '
+             'you may reuse summary_evidence_quote. Use an empty evidence quote only for unknown severity. '
              'summary_evidence_quote must be an exact 45–350 character passage supporting the main summary claim. '
              'Summary: 2–4 clear sentences, 130–510 characters, explaining what changed, scope and relevant uncertainty. '
              'Title <=55 characters; why_it_matters <=110; next_action <=95; all four fields together <=760. '
@@ -92,14 +93,17 @@ def analyze(source_title: str, source_text: str, source_url: str) -> dict | None
     if len(content) != 1:
         raise AnalysisError('AI analysis has no single structured result', usage)
     result = json.loads(content[0])
+    summary_quote = result['summary_evidence_quote'].strip()
+    if not 45 <= len(summary_quote) <= 350 or summary_quote not in source_text:
+        raise AnalysisError('AI summary evidence is absent from source', usage)
     quote = result['evidence_quote'].strip()
+    if not quote and result['severity'] in ('low', 'medium'):
+        quote = summary_quote
+        result['evidence_quote'] = quote
     if quote and quote not in source_text:
         raise AnalysisError('AI severity evidence is absent from source', usage)
     if result['severity'] != 'unknown' and not quote:
         raise AnalysisError('AI severity has no source evidence', usage)
-    summary_quote = result['summary_evidence_quote'].strip()
-    if not 45 <= len(summary_quote) <= 350 or summary_quote not in source_text:
-        raise AnalysisError('AI summary evidence is absent from source', usage)
     copy = {field: result[field] for field in ('title', 'summary', 'why_it_matters', 'next_action')}
     errors = validate_briefing_copy(copy)
     if errors:

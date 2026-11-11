@@ -327,6 +327,10 @@ def test_ai_analysis_requires_source_evidence_and_keeps_review_gate(monkeypatch)
     assert calls[0]['json']['reasoning'] == {'effort': 'none'}
     assert calls[0]['json']['max_output_tokens'] == 1000
     assert output['_usage']['input_tokens'] == 900
+    result['severity'] = 'medium'
+    result['evidence_quote'] = ''
+    assert analyze('Cloudflare outage', source, 'https://www.cloudflarestatus.com/incidents/example')['evidence_quote'] == result['summary_evidence_quote']
+    result['severity'] = 'high'
     result['evidence_quote'] = 'A worldwide outage is confirmed.'
     with pytest.raises(ValueError, match='absent from source'):
         analyze('Cloudflare outage', source, 'https://www.cloudflarestatus.com/incidents/example')
