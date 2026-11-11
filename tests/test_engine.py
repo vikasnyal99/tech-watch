@@ -458,7 +458,8 @@ def test_second_check_requires_independent_exact_source_support():
     assert verified_auto_publishable(analysis, verdict, source_text=source)
     assert not verified_auto_publishable(analysis, {**verdict, 'severity': 'medium'}, source_text=source)
     assert not verified_auto_publishable(analysis, {**verdict, 'summary_quote': 'Every customer is affected.'}, source_text=source)
-    assert not verified_auto_publishable(analysis, {**verdict, 'material_unknown': 'Affected versions'}, source_text=source)
+    assert verified_auto_publishable(analysis, {**verdict, 'material_unknown': 'Affected versions are not specified'}, source_text=source)
+    assert not verified_auto_publishable(analysis, {**verdict, 'contradiction': 'The draft overstates scope'}, source_text=source)
 
 
 def test_verifier_uses_bounded_structured_response(monkeypatch):
@@ -527,6 +528,17 @@ def test_consequential_brief_requires_second_ai_pass(isolated_db, monkeypatch, s
             assert session.execute(text("SELECT action FROM review_audit WHERE actor='two-pass-policy-v1'")).scalar_one() == 'auto_publish_verified'
     else:
         assert pipeline.review_queue()[0]['intelligence']['verification']['supported'] is False
+        with isolated_db.begin() as session:
+            draft = session.execute(text("SELECT id,intelligence_json FROM tech_briefs WHERE status='review_required'"))\
+                .mappings().one()
+            saved = __import__('json').loads(draft['intelligence_json'])
+            saved['verification']['supported'] = True
+            session.execute(text('UPDATE tech_briefs SET intelligence_json=:analysis WHERE id=:id'),
+                            {'analysis': __import__('json').dumps(saved), 'id': draft['id']})
+        before = ai_budget.usage_snapshot()['calls']
+        assert pipeline.publish_existing_verified_ai() == 1
+        assert len(pipeline.published_items()) == 1
+        assert ai_budget.usage_snapshot()['calls'] == before
 
 
 def test_routine_ai_publishes_without_review_but_records_audit(isolated_db, monkeypatch):

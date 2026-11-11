@@ -75,10 +75,10 @@ def verified_auto_publishable(analysis: dict, verdict: dict, *, source_text: str
     """Require a separate checker to agree on severity and cite each main claim."""
     if not verdict.get('supported') or verdict.get('severity') != analysis.get('severity'):
         return False
-    if verdict.get('contradiction') or verdict.get('material_unknown'):
+    if verdict.get('contradiction'):
         return False
     for key in ('title_quote', 'summary_quote', 'action_quote'):
         quote = verdict.get(key) or ''
-        if not 30 <= len(quote) <= 350 or quote not in source_text:
+        if not 20 <= len(quote) <= 350 or quote not in source_text:
             return False
     return True

@@ -532,6 +532,8 @@ def schedule_verify_existing(limit: int = 6) -> int:
         created = 0
         for row in candidates:
             analysis = json.loads(row['intelligence_json'])
+            if 'verification' in analysis:
+                continue
             if not needs_second_check(analysis, source_title=row['raw_text'].split('\n', 1)[0],
                                       source_text=row['description'], release_type=row['release_type'],
                                       published_at=row['published_at']):
@@ -545,6 +547,50 @@ def schedule_verify_existing(limit: int = 6) -> int:
             if created >= limit:
                 break
     return created
+
+
+def publish_existing_verified_ai(limit: int = 20) -> int:
+    """Apply the current deterministic gate to stored second-pass verdicts without new calls."""
+    if os.getenv('AUTO_PUBLISH_ROUTINE') != '1':
+        return 0
+    published = 0
+    with Session.begin() as db:
+        candidates = db.execute(text("SELECT b.id,b.intelligence_json,v.raw_text,r.release_type,"
+                                     "r.published_at,f.description FROM tech_briefs b "
+                                     "JOIN technology_releases r ON r.id=b.release_id "
+                                     "JOIN release_revisions v ON v.id=b.revision_id "
+                                     "JOIN release_facts f ON f.revision_id=b.revision_id "
+                                     "WHERE b.status='review_required' AND b.intelligence_json IS NOT NULL "
+                                     "AND v.content_hash=r.latest_hash "
+                                     "AND NOT EXISTS (SELECT 1 FROM review_audit a WHERE a.brief_id=b.id) "
+                                     "ORDER BY b.updated_at DESC LIMIT 100")).mappings().all()
+        for row in candidates:
+            analysis = json.loads(row['intelligence_json'])
+            verdict = analysis.get('verification')
+            if not verdict or not needs_second_check(
+                    analysis, source_title=row['raw_text'].split('\n', 1)[0],
+                    source_text=row['description'], release_type=row['release_type'],
+                    published_at=row['published_at']):
+                continue
+            if not verified_auto_publishable(analysis, verdict, source_text=row['description']):
+                continue
+            result = db.execute(text("UPDATE tech_briefs SET status='published',updated_at=:stamp "
+                                     "WHERE id=:id AND status='review_required' "
+                                     "AND NOT EXISTS (SELECT 1 FROM review_audit WHERE brief_id=:id)"),
+                                {'stamp': now(), 'id': row['id']})
+            if result.rowcount:
+                db.execute(text("UPDATE tech_briefs SET status='superseded',updated_at=:stamp "
+                                "WHERE release_id=(SELECT release_id FROM tech_briefs WHERE id=:id) "
+                                "AND id<>:id AND status='published'"),
+                           {'stamp': now(), 'id': row['id']})
+                db.execute(text('INSERT INTO review_audit (id,brief_id,action,actor,created_at) '
+                                'VALUES (:id,:brief,:action,:actor,:stamp)'),
+                           {'id': uid(), 'brief': row['id'], 'action': 'auto_publish_verified',
+                            'actor': 'two-pass-policy-v2', 'stamp': now()})
+                published += 1
+                if published >= limit:
+                    break
+    return published
 
 
 def process_ai_brief(job: dict):
@@ -626,6 +672,8 @@ def process_verify_brief(job: dict):
             or not intelligence_configured() or os.getenv('AUTO_PUBLISH_ROUTINE') != '1'):
         return
     analysis = json.loads(row['intelligence_json'])
+    if 'verification' in analysis:
+        return
     source_title = row['raw_text'].split('\n', 1)[0]
     if not needs_second_check(analysis, source_title=source_title, source_text=row['description'],
                               release_type=row['release_type'], published_at=row['published_at']):

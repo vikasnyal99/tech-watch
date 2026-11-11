@@ -146,7 +146,10 @@ def verify(source_title: str, source_text: str, source_url: str,
                 'or the source is too thin. Return one exact 30–350 character contiguous source quote '
                 'for the title, main summary claim, and underlying reason for the action. '
                 'If no supporting quote exists, return an empty string and supported false. '
-                'State any contradiction or material unknown plainly; do not invent missing facts. '
+                'State a contradiction only when a draft claim conflicts with the source. '
+                'Set material_unknown only when missing information makes a draft claim unsafe; '
+                'do not flag background details already described as unknown in the draft. '
+                'Do not invent missing facts. '
                 'Critical requires confirmed widespread outage or active exploitation of a critical '
                 'vulnerability; high requires a confirmed serious security issue, breaking change, '
                 'or substantial disruption. Otherwise use medium, low, or unknown.')},

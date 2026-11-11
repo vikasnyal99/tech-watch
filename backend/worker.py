@@ -3,7 +3,7 @@ import os
 import time
 from backend.db import migrate
 from backend.engine import (run_once, schedule_due, schedule_ai_backfill, schedule_verify_existing,
-                            publish_existing_routine_ai,
+                            publish_existing_routine_ai, publish_existing_verified_ai,
                             seed_source, seed_rss_sources, sync_service_incidents)
 
 
@@ -25,6 +25,7 @@ def main():
                 next_incident_check = time.monotonic() + 300
             if time.monotonic() >= next_ai_backfill:
                 publish_existing_routine_ai()
+                publish_existing_verified_ai()
                 schedule_verify_existing()
                 schedule_ai_backfill()
                 next_ai_backfill = time.monotonic() + 21600
