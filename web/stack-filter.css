@@ -22,23 +22,26 @@
 .browse-filter-options .filter-choice{min-width:0}
 .browse-filter-options .filter-choice[hidden],.browse-filter-empty[hidden]{display:none!important}
 .browse-filter-empty{grid-column:1/-1;padding:15px 2px;color:#655d58;font-size:13px}
-.feed-controls .topic-trigger,.feed-page .topic-trigger{flex:0 1 auto;width:max-content;min-width:0;max-width:126px;height:36px;padding:0 2px;border:0;border-radius:0;background:transparent;box-shadow:none;gap:4px;color:#9f3e20;text-align:left}
+.feed-controls .topic-trigger,.feed-page .topic-trigger{flex:1 1 auto;width:auto;min-width:0;max-width:none;height:100%;padding:4px 5px;border:0;border-radius:0;background:transparent;box-shadow:none;gap:2px;color:#44352e;text-align:left;white-space:normal}
 .feed-controls .topic-trigger:hover{color:#7c2e17;text-decoration:underline;text-underline-offset:3px}
 .feed-controls .topic-trigger:focus-visible{outline:2px solid #b74720;outline-offset:2px;border-radius:3px}
-.topic-trigger .topic-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:700}
-.topic-trigger .topic-chevron{flex:none;width:14px;height:14px;display:grid;place-items:center;color:inherit}
-.topic-trigger .topic-chevron .ui-icon{width:14px;height:14px;display:block}
-.clear-view-filter{flex:none;width:20px;height:25px;padding:0;border:0;border-radius:50%;background:#f3e8df;color:#a13d1e;font-size:17px;line-height:1}
-/* Keep the toolbar on one line. Briefing position lives on the image. */
-.feed-page .feed-controls{display:flex;height:44px;gap:6px;justify-content:stretch}
-.feed-page .feed-controls .topic-trigger{flex:1 1 auto;width:auto;max-width:none;padding:0 2px}
+.filter-control{display:flex;align-items:center;min-width:0;height:44px;border:1px solid #e3d7cf;border-radius:12px;background:linear-gradient(#fff,#fdfbf8);box-shadow:0 1px 3px #41251512}
+.topic-trigger .topic-label{min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;font-size:12px;line-height:1.08;font-weight:700;overflow-wrap:anywhere}
+.topic-trigger.long-label .topic-label{font-size:10.5px;line-height:1.12}
+.topic-trigger.very-long-label .topic-label{font-size:10px}
+.topic-trigger .topic-chevron{flex:none;width:10px;height:10px;display:grid;place-items:center;color:#8d4a32}
+.topic-trigger .topic-chevron .ui-icon{width:10px;height:10px;display:block}
+.clear-view-filter{flex:none;width:20px;height:20px;margin-right:3px;padding:0;border:0;border-radius:50%;background:#f3e8df;color:#a13d1e;font-size:15px;line-height:1}
+.feed-page .feed-controls.has-pager{display:grid;grid-template-columns:minmax(0,1fr) 70px auto;gap:5px;height:59px;justify-content:stretch}
+.feed-page .feed-controls.no-pager{display:flex;gap:5px;height:59px}
+.feed-page .feed-controls .filter-control{min-width:0;width:100%}
+.feed-page .feed-controls .slide-indicator{flex:none;width:70px;min-width:0;gap:0}
+.feed-page .slide-indicator small{font-size:9px}
+.feed-page .slide-step{width:15px;min-width:15px}
 .feed-page .feed-controls .mode{flex:none}
-.feed-page .card-stage{height:calc(100dvh - 225px)}
-.media-pager{position:absolute;z-index:2;left:7px;bottom:51px;display:flex;align-items:center;gap:1px;height:28px;padding:2px 3px;border:1px solid #ffffffd9;border-radius:8px;background:#fffdf9ed;color:#704b3a;box-shadow:0 2px 8px #35221420;backdrop-filter:blur(8px)}
-.media-pager span{padding:0 3px;font-size:10px;font-weight:750;white-space:nowrap}
-.media-pager button{width:24px;height:24px;padding:0;border:0;border-radius:5px;background:transparent;color:#a43d1d;font-size:18px;line-height:1}
-.media-pager button:hover:not(:disabled){background:#f6e9e0}
-.media-pager button:disabled{opacity:.35;cursor:default}
-.feed-controls .topic-trigger{max-width:none}
-@media(max-height:650px){.feed-page .feed-controls{height:36px}.feed-page .card-stage{height:calc(100dvh - 191px)}.media-pager{bottom:44px;height:24px}.media-pager button{height:20px}}
-@media(max-height:540px){.feed-page .feed-controls{height:34px}.feed-page .card-stage{height:calc(100dvh - 171px)}.media-pager{display:none}}
+.feed-page .feed-controls .mode button{min-width:55px;padding:5px 3px;gap:3px;font-size:11px}
+.feed-page .feed-controls .mode button .ui-icon{width:14px;height:14px}
+.feed-page .card-stage{height:calc(100dvh - 240px)}
+@media(max-width:365px){.feed-page .feed-controls.has-pager{grid-template-columns:minmax(0,1fr) 60px auto;gap:4px}.feed-page .feed-controls .slide-indicator{width:60px}.feed-page .slide-step{width:11px;min-width:11px}.feed-page .feed-controls .mode button{min-width:46px;padding:4px 2px;gap:2px;font-size:10px}.feed-page .feed-controls .mode button .ui-icon{width:12px;height:12px}}
+@media(max-height:650px){.feed-page .feed-controls.has-pager,.feed-page .feed-controls.no-pager{height:50px}.feed-page .filter-control{height:38px}.feed-page .card-stage{height:calc(100dvh - 205px)}}
+@media(max-height:540px){.feed-page .feed-controls.has-pager,.feed-page .feed-controls.no-pager{height:44px}.feed-page .filter-control{height:34px}.feed-page .card-stage{height:calc(100dvh - 181px)}}

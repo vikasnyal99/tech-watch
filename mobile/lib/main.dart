@@ -926,65 +926,117 @@ class _HomeState extends State<Home> {
       ),
     ),
   );
-  Widget controls() => Padding(
-    padding: const EdgeInsets.fromLTRB(12, 8, 12, 5),
-    child: Row(children: [
-          Expanded(child: OutlinedButton.icon(
-            onPressed: filterView,
-            icon: const Icon(Icons.keyboard_arrow_down, size: 17),
-            label: Text(
-              section == 1
-                  ? stackView.isEmpty
-                      ? 'Filter stack'
-                      : '${stackView.length} selected'
-                  : topicFilters[section].isNotEmpty
-                      ? topicFilters[section]
-                      : technologyFilters[section].isNotEmpty
-                          ? technologyFilters[section]
-                          : 'Filter ${sections[section]}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+  Widget controls() {
+    final active = section == 1
+        ? stackView.isNotEmpty
+        : topicFilters[section].isNotEmpty || technologyFilters[section].isNotEmpty;
+    final fullLabel = section == 1
+        ? stackView.isEmpty ? 'Your stack' : stackView.join(', ')
+        : topicFilters[section].isNotEmpty
+            ? topicFilters[section]
+            : technologyFilters[section].isNotEmpty
+                ? technologyFilters[section]
+                : ['For you', '', 'Trending', 'AI updates'][section];
+    final label = section == 1 && stackView.length > 2
+        ? '${stackView.length} technologies'
+        : fullLabel;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 5),
+      child: Row(
+        children: [
+          Expanded(
+            child: Tooltip(
+              message: fullLabel,
+              child: Container(
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: line),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: filterView,
+                        borderRadius: BorderRadius.circular(11),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  label,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: ink,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: label.length > 25 ? 10 : label.length > 17 ? 10.5 : 12,
+                                    height: 1.08,
+                                  ),
+                                ),
+                              ),
+                              const Icon(Icons.keyboard_arrow_down, size: 14, color: clay),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (active)
+                      IconButton(
+                        tooltip: 'Clear temporary filter',
+                        icon: const Icon(Icons.close, size: 16, color: clay),
+                        constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                        padding: EdgeInsets.zero,
+                        onPressed: () {
+                          setState(() {
+                            stackView.clear();
+                            topicFilters[section] = '';
+                            technologyFilters[section] = '';
+                          });
+                          refresh();
+                        },
+                      ),
+                  ],
+                ),
+              ),
             ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: ink,
-              side: const BorderSide(color: line),
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 7),
-              minimumSize: const Size(0, 34),
-            ),
-          )),
-        if (section == 1
-            ? stackView.isNotEmpty
-            : topicFilters[section].isNotEmpty || technologyFilters[section].isNotEmpty)
-          IconButton(
-            tooltip: 'Clear temporary filter',
-            icon: const Icon(Icons.close, size: 17),
-            onPressed: () {
-              setState(() {
-                stackView.clear();
-                topicFilters[section] = '';
-                technologyFilters[section] = '';
-              });
-              refresh();
-            },
           ),
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(value: false, icon: Icon(Icons.grid_view, size: 16)),
-            ButtonSegment(value: true, icon: Icon(Icons.view_list, size: 17)),
+          if (!listMode && items.isNotEmpty) ...[
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 70,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${focus + 1} of ${items.length}',
+                      style: const TextStyle(fontSize: 11, color: ink, fontWeight: FontWeight.w700)),
+                  const Text('Swipe up', style: TextStyle(fontSize: 9, color: muted)),
+                ],
+              ),
+            ),
           ],
-          selected: {listMode},
-          showSelectedIcon: false,
-          style: ButtonStyle(
-            visualDensity: VisualDensity.compact,
-            padding: WidgetStateProperty.all(
-              const EdgeInsets.symmetric(horizontal: 5),
+          const SizedBox(width: 4),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, icon: Icon(Icons.grid_view, size: 16)),
+              ButtonSegment(value: true, icon: Icon(Icons.view_list, size: 17)),
+            ],
+            selected: {listMode},
+            showSelectedIcon: false,
+            style: ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              padding: WidgetStateProperty.all(
+                const EdgeInsets.symmetric(horizontal: 5),
+              ),
             ),
+            onSelectionChanged: (value) => setState(() => listMode = value.first),
           ),
-          onSelectionChanged: (value) => setState(() => listMode = value.first),
-        ),
-    ]),
-  );
+        ],
+      ),
+    );
+  }
   Widget feedBody() {
     if (loading && items.isEmpty) {
       return const Center(child: CircularProgressIndicator(color: clay));
@@ -1025,8 +1077,6 @@ class _HomeState extends State<Home> {
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
         child: BriefCard(
           item: items[i],
-          position: i + 1,
-          total: items.length,
           saved: saved.any((s) => s['id'] == items[i]['id']),
           onSave: () => bookmark(items[i]),
           onShare: () => shareBrief(items[i]),
@@ -1694,15 +1744,12 @@ class BriefCard extends StatelessWidget {
   const BriefCard({
     super.key,
     required this.item,
-    required this.position,
-    required this.total,
     required this.saved,
     required this.onSave,
     required this.onShare,
     required this.onSource,
   });
   final Map<String, dynamic> item;
-  final int position, total;
   final bool saved;
   final VoidCallback onSave, onShare, onSource;
 
@@ -2016,25 +2063,6 @@ class BriefCard extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              if (!tiny)
-                                Positioned(
-                                  left: 7,
-                                  bottom: compact ? 41 : 46,
-                                  child: Semantics(
-                                    label: 'Briefing $position of $total. Swipe up for next.',
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: .94),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        '$position of $total  ↑',
-                                        style: const TextStyle(color: clay, fontSize: 11, fontWeight: FontWeight.w700),
-                                      ),
-                                    ),
-                                  ),
-                                ),
                               Positioned(
                                 right: 7,
                                 bottom: 7,
@@ -2090,11 +2118,6 @@ class BriefCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (tiny)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text('$position of $total · Swipe up', style: const TextStyle(color: clay, fontSize: 10)),
-                        ),
                       SizedBox(
                         height: tiny
                             ? 6
