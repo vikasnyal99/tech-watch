@@ -3,3 +3,9 @@
 .stack-filter-sheet .stack-groups{min-height:0;overflow-y:auto;margin:0 0 10px;padding:0 2px 4px;overscroll-behavior:contain}
 .stack-filter-sheet .stack-count{position:sticky;bottom:0;background:#fffdfb;padding:10px 2px 4px}
 .stack-filter-sheet>.on-primary{flex:none;width:100%;min-height:45px;border:0;border-radius:9px;background:#b74720;color:#fff;font-size:15px;font-weight:650}
+.feed-controls .topic-trigger,.feed-page .topic-trigger{flex:0 1 auto;width:max-content;min-width:0;max-width:126px;height:36px;padding:0 2px;border:0;border-radius:0;background:transparent;box-shadow:none;gap:4px;color:#9f3e20;text-align:left}
+.feed-controls .topic-trigger:hover{color:#7c2e17;text-decoration:underline;text-underline-offset:3px}
+.feed-controls .topic-trigger:focus-visible{outline:2px solid #b74720;outline-offset:2px;border-radius:3px}
+.topic-trigger .topic-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:700}
+.topic-trigger .topic-chevron{flex:none;font-size:15px;line-height:1;color:inherit}
+@media(max-width:365px){.feed-page .topic-trigger{max-width:95px}}
