@@ -945,9 +945,10 @@ class _HomeState extends State<Home> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Flexible(
-            fit: FlexFit.loose,
-            child: IntrinsicWidth(
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: IntrinsicWidth(
               child: Tooltip(
               message: fullLabel,
               child: Container(
@@ -1003,6 +1004,7 @@ class _HomeState extends State<Home> {
                       ),
                   ],
                 ),
+              ),
               ),
               ),
             ),
