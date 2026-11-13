@@ -1,0 +1,5 @@
+.stack-filter-sheet{display:flex;flex-direction:column;overflow:hidden}
+.stack-filter-sheet .field{flex:none;min-height:43px;margin:0 0 10px;background:#fff}
+.stack-filter-sheet .stack-groups{min-height:0;overflow-y:auto;margin:0 0 10px;padding:0 2px 4px;overscroll-behavior:contain}
+.stack-filter-sheet .stack-count{position:sticky;bottom:0;background:#fffdfb;padding:10px 2px 4px}
+.stack-filter-sheet>.on-primary{flex:none;width:100%;min-height:45px;border:0;border-radius:9px;background:#b74720;color:#fff;font-size:15px;font-weight:650}

@@ -924,10 +924,10 @@ class _HomeState extends State<Home> {
     child: Row(
       children: [
         OutlinedButton.icon(
-          onPressed: filterTopics,
-          icon: const Icon(Icons.tune, size: 16),
+          onPressed: section == 1 ? editStack : filterTopics,
+          icon: Icon(section == 1 ? Icons.layers_outlined : Icons.tune, size: 16),
           label: Text(
-            topic.isEmpty ? 'All updates' : topic,
+            section == 1 ? 'Your stack' : topic.isEmpty ? 'All updates' : topic,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -1077,6 +1077,20 @@ class _HomeState extends State<Home> {
       setState(() => topic = selected);
       refresh();
     }
+  }
+
+  Future<void> editStack() async {
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StackEditor(
+          api: widget.api,
+          prefs: widget.prefs,
+          catalog: widget.catalog,
+        ),
+      ),
+    );
+    if (updated == true && mounted) refresh();
   }
 
   Widget storyRow(Map<String, dynamic> item, VoidCallback tap) => InkWell(
