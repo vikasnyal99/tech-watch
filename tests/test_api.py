@@ -21,11 +21,21 @@ def test_flow():
         assert len(stack)==1 and stack[0]['technology']=='PHP'
         personal=c.get('/v1/feed?section=feed',headers=h).json()['items']
         assert [x['id'] for x in personal] == [stack[0]['id']]
+        # View filters can browse beyond follows without changing saved choices.
+        temporary=c.get('/v1/feed?section=feed&technology=Kubernetes',headers=h).json()['items']
+        assert len(temporary)==1 and temporary[0]['technology']=='Kubernetes'
+        assert {x['technology'] for x in c.get('/v1/feed?section=feed&topic=Kubernetes%20%26%20containers',headers=h).json()['items']} == {'Kubernetes'}
+        assert not c.get('/v1/feed?section=stack&technology=Kubernetes',headers=h).json()['items']
+        assert c.get('/v1/preferences',headers=h).json()['follows']==['PHP']
         assert {x['technology'] for x in c.get('/v1/feed?section=trending',headers=h).json()['items']} == {'Kubernetes', 'PHP'}
         assert len(c.get('/v1/search?q=Kubernetes',headers=h).json()['stories']) == 1
         p['topics']=['Kubernetes & containers']
         assert c.put('/v1/preferences',headers=h,json=p).status_code==200
         assert {x['technology'] for x in c.get('/v1/feed?section=feed',headers=h).json()['items']} == {'PHP', 'Kubernetes'}
+        p['follows']=['PHP','Kubernetes']
+        assert c.put('/v1/preferences',headers=h,json=p).status_code==200
+        assert {x['technology'] for x in c.get('/v1/feed?section=stack&technology=PHP',headers=h).json()['items']} == {'PHP'}
+        assert {x['technology'] for x in c.get('/v1/feed?section=stack',headers=h).json()['items']} == {'PHP','Kubernetes'}
         assert c.put('/v1/bookmarks/demo-php-1',headers=h).status_code==200
         assert len(c.get('/v1/bookmarks',headers=h).json()['items'])==1
         assert c.delete('/v1/bookmarks/demo-php-1',headers=h).status_code==200

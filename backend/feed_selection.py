@@ -63,11 +63,15 @@ def diverse_order(items: list[dict], value) -> list[dict]:
     return ordered
 
 
-def personal_feed(items: list[dict], preferences, today: date | None = None) -> list[dict]:
+def personal_feed(items: list[dict], preferences, today: date | None = None,
+                  include_all: bool = False) -> list[dict]:
+    """Rank the default interests, or rank all candidates for a temporary view filter."""
     today = today or date.today()
     follows = set(preferences.follows)
     topics = set(preferences.topics)
-    if follows or topics:
+    if include_all:
+        selected = items
+    elif follows or topics:
         selected = [item for item in items if item['technology'] in follows or item['topic'] in topics
                     or ('AI models' in follows and item['topic'] == 'AI models & APIs')]
     else:

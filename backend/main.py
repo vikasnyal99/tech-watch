@@ -114,7 +114,10 @@ def delete_installation_data(x_installation_id: str | None = Header(None)):
     return {'deleted': True}
 
 @app.get('/v1/feed')
-def feed(section: str = Query('feed', pattern='^(feed|stack|trending|ai)$'), topic: str = '', cursor: int = 0, limit: int = Query(100, ge=1, le=100), demo: bool = False, x_installation_id: str | None = Header(None)):
+def feed(section: str = Query('feed', pattern='^(feed|stack|trending|ai)$'), topic: str = '',
+         technology: list[str] = Query(default=[]), cursor: int = 0,
+         limit: int = Query(100, ge=1, le=100), demo: bool = False,
+         x_installation_id: str | None = Header(None)):
     ident = installation(x_installation_id)
     items = visible_items(demo)
     preferences = prefs(ident)
@@ -127,9 +130,15 @@ def feed(section: str = Query('feed', pattern='^(feed|stack|trending|ai)$'), top
     elif section == 'trending':
         items = trending_feed(items, preferences.signals)
     else:
-        items = personal_feed(items, preferences)
+        items = personal_feed(items, preferences, include_all=bool(topic or technology))
     if topic:
         items = [i for i in items if i['topic'] == topic]
+    if technology:
+        selected = set(technology)
+        if section == 'stack':
+            selected &= set(preferences.follows)
+        items = [i for i in items if i['technology'] in selected
+                 or ('AI models' in selected and i['topic'] == 'AI models & APIs')]
     start = max(cursor, 0)
     end = start + limit
     return {'items': [item | {'importance': importance(item)} for item in items[start:end]],

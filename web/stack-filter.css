@@ -13,10 +13,20 @@
 .stack-filter-footer button{border:0;background:none;color:#b74720;text-decoration:underline;font:inherit}
 .stack-filter-empty{padding:12px 3px;font-size:13px;color:#655d58}
 .stack-filter-sheet>.on-primary{flex:none;width:100%;min-height:45px;border:0;border-radius:9px;background:#b74720;color:#fff;font-size:15px;font-weight:650}
+.browse-filter-sheet{display:flex;flex-direction:column;height:min(85dvh,720px);max-height:calc(100dvh - 12px);overflow:hidden;padding-bottom:max(18px,env(safe-area-inset-bottom))}
+.browse-filter-sheet .field{flex:none;min-height:43px;margin:0 0 12px;background:#fff}
+.filter-switch{display:flex;gap:8px;margin:0 0 12px}
+.filter-switch button{flex:1;min-height:37px;border:1px solid #e2d7cf;border-radius:9px;background:#fff;color:#55463e;font-size:13px;font-weight:650}
+.filter-switch button.active{background:#b74720;border-color:#b74720;color:#fff}
+.browse-filter-options{display:grid;grid-template-columns:1fr 1fr;align-content:start;gap:8px;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.browse-filter-options .filter-choice{min-width:0}
+.browse-filter-options .filter-choice[hidden],.browse-filter-empty[hidden]{display:none!important}
+.browse-filter-empty{grid-column:1/-1;padding:15px 2px;color:#655d58;font-size:13px}
 .feed-controls .topic-trigger,.feed-page .topic-trigger{flex:0 1 auto;width:max-content;min-width:0;max-width:126px;height:36px;padding:0 2px;border:0;border-radius:0;background:transparent;box-shadow:none;gap:4px;color:#9f3e20;text-align:left}
 .feed-controls .topic-trigger:hover{color:#7c2e17;text-decoration:underline;text-underline-offset:3px}
 .feed-controls .topic-trigger:focus-visible{outline:2px solid #b74720;outline-offset:2px;border-radius:3px}
 .topic-trigger .topic-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:700}
 .topic-trigger .topic-chevron{flex:none;width:14px;height:14px;display:grid;place-items:center;color:inherit}
 .topic-trigger .topic-chevron .ui-icon{width:14px;height:14px;display:block}
+.clear-view-filter{flex:none;width:20px;height:25px;padding:0;border:0;border-radius:50%;background:#f3e8df;color:#a13d1e;font-size:17px;line-height:1}
 @media(max-width:365px){.feed-page .topic-trigger{max-width:95px}}

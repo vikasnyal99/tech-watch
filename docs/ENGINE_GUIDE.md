@@ -82,6 +82,18 @@ requires a technology follow. AI filters by subject. A Breaking story can
 therefore appear in Trending and the alert indicator without changing the
 user's chosen Feed topics.
 
+The top-left controls in Briefs are temporary view filters. Feed can browse
+any published topic or technology, including one outside the installation's
+follows; the unfiltered Feed still uses onboarding preferences. Your Stack
+can narrow to one or more *already followed* technologies; an empty selection
+means all follows. Trending and AI filters narrow their existing sections.
+These selections stay in client memory for the current page visit, remain when
+switching tabs, and reset on reload or reopening the app. They never write
+`/v1/preferences`. Permanent changes use Settings (or onboarding). The API
+accepts `topic` and repeated `technology` parameters on `/v1/feed`; a Feed
+view filter bypasses the normal preference inclusion gate, while the Stack
+endpoint intersects its technology filter with saved follows.
+
 ## Reading and alerts
 
 `GET /v1/alerts` exposes recent published Breaking items for three days, with

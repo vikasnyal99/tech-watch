@@ -39,6 +39,7 @@ The original handoff supplied specifications, starter fixtures and raster design
 
 - Open to Feed in Cards mode after onboarding; first-run onboarding is optional and skippable.
 - Four top tabs, in order: **Feed · Your Stack · Trending · AI**. Explicit Cards/List switch; vertical paging for cards; same section, filter, ordering and focused item on mode switch.
+- The top-left dropdowns are temporary view filters. Feed can browse a topic or technology outside saved interests; Your Stack narrows only within followed technologies. Filters remain while switching tabs during a visit and reset on reload. Change permanent interests and follows in Settings.
 - Audience: practitioners and technical leaders; cover releases, libraries, APIs, cloud, vulnerabilities, deprecations, and AI developments.
 - Title must convey the actual update; brief plain-language summary preserves essential facts and uncertainty. Match products and versions carefully. Link to source.
 - Design: light warm-white editorial backgrounds, white cards, restrained terracotta accents, serif titles, sans-serif body/controls, subtle depth.

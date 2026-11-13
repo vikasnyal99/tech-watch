@@ -633,7 +633,10 @@ class Home extends StatefulWidget {
 class _HomeState extends State<Home> {
   int destination = 0, section = 0, focus = 0;
   bool listMode = false, loading = true;
-  String topic = '', query = '';
+  String query = '';
+  final topicFilters = List<String>.filled(4, '');
+  final technologyFilters = List<String>.filled(4, '');
+  final stackView = <String>{};
   String? error;
   List<Map<String, dynamic>> items = [], saved = [], searchResults = [];
   Map<String, dynamic>? health;
@@ -662,11 +665,18 @@ class _HomeState extends State<Home> {
       error = null;
     });
     try {
-      final path =
-          '/v1/feed?section=${sectionIds[section]}&topic=${Uri.encodeQueryComponent(topic)}';
+      final parameters = <String, List<String>>{'section': [sectionIds[section]]};
+      if (section == 1 && stackView.isNotEmpty) {
+        parameters['technology'] = stackView.toList();
+      } else if (section != 1 && topicFilters[section].isNotEmpty) {
+        parameters['topic'] = [topicFilters[section]];
+      } else if (section != 1 && technologyFilters[section].isNotEmpty) {
+        parameters['technology'] = [technologyFilters[section]];
+      }
+      final path = '/v1/feed?${Uri(queryParametersAll: parameters).query}';
       final data = await widget.api.cachedMap(
         path,
-        'feed_${sectionIds[section]}_$topic',
+        'feed_${sectionIds[section]}_${parameters.toString()}',
       );
       if (mounted) {
         setState(() {
@@ -787,10 +797,7 @@ class _HomeState extends State<Home> {
   }
 
   void goSection(int value) {
-    setState(() {
-      section = value;
-      topic = '';
-    });
+    setState(() => section = value);
     refresh();
   }
 
@@ -923,27 +930,60 @@ class _HomeState extends State<Home> {
     padding: const EdgeInsets.fromLTRB(12, 8, 12, 5),
     child: Row(
       children: [
-        OutlinedButton.icon(
-          onPressed: section == 1 ? editStack : filterTopics,
-          icon: Icon(section == 1 ? Icons.layers_outlined : Icons.tune, size: 16),
-          label: Text(
-            section == 1 ? 'Your stack' : topic.isEmpty ? 'All updates' : topic,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: ink,
-            side: const BorderSide(color: line),
-            visualDensity: VisualDensity.compact,
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 122),
+          child: OutlinedButton.icon(
+            onPressed: filterView,
+            icon: const Icon(Icons.keyboard_arrow_down, size: 17),
+            label: Text(
+              section == 1
+                  ? stackView.isEmpty
+                      ? 'Filter stack'
+                      : '${stackView.length} selected'
+                  : topicFilters[section].isNotEmpty
+                      ? topicFilters[section]
+                      : technologyFilters[section].isNotEmpty
+                          ? technologyFilters[section]
+                          : 'Filter ${sections[section]}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: ink,
+              side: const BorderSide(color: line),
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 7),
+              minimumSize: const Size(0, 34),
+            ),
           ),
         ),
-        const Spacer(),
-        if (!listMode && items.isNotEmpty)
-          Text(
-            '${focus + 1} of ${items.length} · Swipe up',
-            style: const TextStyle(fontSize: 11, color: muted),
+        if (section == 1
+            ? stackView.isNotEmpty
+            : topicFilters[section].isNotEmpty || technologyFilters[section].isNotEmpty)
+          IconButton(
+            tooltip: 'Clear temporary filter',
+            icon: const Icon(Icons.close, size: 17),
+            onPressed: () {
+              setState(() {
+                stackView.clear();
+                topicFilters[section] = '';
+                technologyFilters[section] = '';
+              });
+              refresh();
+            },
           ),
-        const Spacer(),
+        Expanded(
+          child: Center(
+            child: !listMode && items.isNotEmpty
+                ? Text(
+                    '${focus + 1} of ${items.length} · Swipe up',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: muted),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
         SegmentedButton<bool>(
           segments: const [
             ButtonSegment(value: false, icon: Icon(Icons.grid_view, size: 16)),
@@ -970,7 +1010,7 @@ class _HomeState extends State<Home> {
     if (items.isEmpty) {
       return empty(
         section == 1
-            ? 'Follow technologies in onboarding to fill Your Stack.'
+            ? 'Follow technologies in Settings to fill Your Stack.'
             : 'No reviewed briefings in this section yet.',
         refresh,
       );
@@ -1026,71 +1066,135 @@ class _HomeState extends State<Home> {
       ),
     ),
   );
-  Future<void> filterTopics() async {
-    final options = ['', ...strings(widget.catalog['topics'])];
-    final selected = await showModalBottomSheet<String>(
+  Future<void> filterView() async {
+    if (section == 1) {
+      final followed = strings(widget.prefs['follows']);
+      final selected = stackView.toSet();
+      var search = '';
+      final result = await showModalBottomSheet<Set<String>>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (sheetContext, setSheet) => SafeArea(
+            child: SizedBox(
+              height: MediaQuery.sizeOf(sheetContext).height * .72,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Filter your stack', style: TextStyle(fontFamily: 'serif', fontSize: 25)),
+                    const Text('Show selected technologies for now. Your followed stack stays the same.', style: TextStyle(color: muted)),
+                    const SizedBox(height: 12),
+                    TextField(
+                      decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search followed technologies'),
+                      onChanged: (value) => setSheet(() { search = value.toLowerCase(); }),
+                    ),
+                    Expanded(
+                      child: followed.isEmpty
+                          ? const Center(child: Text('No technologies followed. Add them in Settings.'))
+                          : ListView(
+                              children: followed.where((value) => value.toLowerCase().contains(search)).map((value) =>
+                                CheckboxListTile(
+                                  title: Text(value),
+                                  value: selected.contains(value),
+                                  activeColor: clay,
+                                  onChanged: (_) => setSheet(() {
+                                    if (selected.contains(value)) {
+                                      selected.remove(value);
+                                    } else {
+                                      selected.add(value);
+                                    }
+                                  }),
+                                ),
+                              ).toList(),
+                            ),
+                    ),
+                    TextButton(
+                      onPressed: () => setSheet(() { selected.clear(); }),
+                      child: const Text('Show all followed'),
+                    ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(sheetContext, Set<String>.from(selected)),
+                        child: const Text('Show updates'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      if (result != null && mounted) {
+        setState(() { stackView.clear(); stackView.addAll(result); });
+        refresh();
+      }
+      return;
+    }
+
+    var mode = technologyFilters[section].isNotEmpty ? 'technology' : 'topic';
+    var search = '';
+    final selected = await showModalBottomSheet<List<String>>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Choose topics',
-                style: TextStyle(fontFamily: 'serif', fontSize: 25),
-              ),
-              const Text(
-                'Filter this section without changing your followed interests.',
-                style: TextStyle(color: muted),
-              ),
-              const SizedBox(height: 15),
-              SizedBox(
-                height: MediaQuery.sizeOf(context).height * .48,
-                child: ListView(
-                  children: options
-                      .map(
-                        (item) => ListTile(
-                          title: Text(item.isEmpty ? 'All updates' : item),
-                          leading: Icon(
-                            item.isEmpty ? Icons.grid_view : iconFor(item),
-                            color: clay,
-                          ),
-                          trailing: topic == item
-                              ? const Icon(Icons.check, color: clay)
-                              : null,
-                          onTap: () => Navigator.pop(context, item),
-                        ),
-                      )
-                      .toList(),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheet) {
+          final options = strings(widget.catalog[mode == 'topic' ? 'topics' : 'technologies'])
+              .where((value) => value.toLowerCase().contains(search)).toList();
+          return SafeArea(
+            child: SizedBox(
+              height: MediaQuery.sizeOf(sheetContext).height * .72,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Filter ${sections[section]}', style: const TextStyle(fontFamily: 'serif', fontSize: 25)),
+                    const Text('Explore for now. Your followed interests stay the same.', style: TextStyle(color: muted)),
+                    const SizedBox(height: 12),
+                    SegmentedButton<String>(
+                      segments: const [ButtonSegment(value: 'topic', label: Text('Topics')), ButtonSegment(value: 'technology', label: Text('Technologies'))],
+                      selected: {mode},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (value) => setSheet(() { mode = value.first; }),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search filters'),
+                      onChanged: (value) => setSheet(() { search = value.toLowerCase(); }),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          ListTile(title: const Text('All updates'), leading: const Icon(Icons.grid_view, color: clay), onTap: () => Navigator.pop(sheetContext, ['', ''])),
+                          ...options.map((value) => ListTile(
+                            title: Text(value),
+                            leading: Icon(iconFor(value), color: clay),
+                            onTap: () => Navigator.pop(sheetContext, [mode, value]),
+                          )),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
-    if (selected != null && selected != topic) {
-      setState(() => topic = selected);
+    if (selected != null && mounted) {
+      setState(() {
+        topicFilters[section] = selected[0] == 'topic' ? selected[1] : '';
+        technologyFilters[section] = selected[0] == 'technology' ? selected[1] : '';
+      });
       refresh();
     }
-  }
-
-  Future<void> editStack() async {
-    final updated = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => StackEditor(
-          api: widget.api,
-          prefs: widget.prefs,
-          catalog: widget.catalog,
-        ),
-      ),
-    );
-    if (updated == true && mounted) refresh();
   }
 
   Widget storyRow(Map<String, dynamic> item, VoidCallback tap) => InkWell(
@@ -1255,7 +1359,8 @@ class _HomeState extends State<Home> {
                     setState(() {
                       destination = 0;
                       section = 0;
-                      topic = item;
+                      topicFilters[0] = item;
+                      technologyFilters[0] = '';
                     });
                     refresh();
                   },
@@ -2062,6 +2167,71 @@ class Settings extends StatefulWidget {
 
 class _SettingsState extends State<Settings> {
   bool deleting = false;
+  Future<void> editTopics() async {
+    final selected = strings(widget.prefs['topics']).toSet();
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheet) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(sheetContext).height * .68,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Followed topics', style: TextStyle(fontFamily: 'serif', fontSize: 25)),
+                  const Text('These choices shape your default Feed.', style: TextStyle(color: muted)),
+                  Expanded(
+                    child: ListView(
+                      children: strings(widget.catalog['topics']).map((value) => CheckboxListTile(
+                        title: Text(value),
+                        value: selected.contains(value),
+                        activeColor: clay,
+                        onChanged: (_) => setSheet(() {
+                          if (selected.contains(value)) {
+                            selected.remove(value);
+                          } else {
+                            selected.add(value);
+                          }
+                        }),
+                      )).toList(),
+                    ),
+                  ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(sheetContext, Set<String>.from(selected)),
+                      child: const Text('Save followed topics'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (result == null) return;
+    try {
+      final update = <String, dynamic>{...widget.prefs, 'topics': result.toList()};
+      final value = Map<String, dynamic>.from(
+        await widget.api.request('/v1/preferences', method: 'PUT', body: update) as Map,
+      );
+      await widget.api.storage.setString('preferences', jsonEncode(value));
+      widget.prefs.addAll(value);
+      if (mounted) setState(() {});
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save followed topics. Try again.')),
+        );
+      }
+    }
+  }
+
   Future<void> deleteData() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -2122,6 +2292,13 @@ class _SettingsState extends State<Settings> {
           subtitle: Text('Practical technical briefings for builders.'),
         ),
         const Divider(),
+        ListTile(
+          leading: const Icon(Icons.tune, color: clay),
+          title: const Text('Followed topics'),
+          subtitle: Text('${strings(widget.prefs['topics']).length} topics followed'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: editTopics,
+        ),
         ListTile(
           leading: const Icon(Icons.layers_outlined, color: clay),
           title: const Text('Your stack'),
