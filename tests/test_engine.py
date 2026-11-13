@@ -51,6 +51,38 @@ def count(sessions, table):
         return session.execute(text(f'SELECT count(*) FROM {table}')).scalar_one()
 
 
+def test_urgent_jobs_preempt_older_routine_work(isolated_db):
+    with isolated_db.begin() as session:
+        pipeline.enqueue(session, 'fetch-index', {'source_id': 'aws-news'}, 'routine-poll')
+        pipeline.enqueue(session, 'fetch-index', {'source_id': 'aws-security'}, 'urgent-poll')
+        pipeline.enqueue(session, 'analyze-brief', {'revision_id': 'rev-urgent', 'urgent': True}, 'urgent-ai')
+        pipeline.enqueue(session, 'verify-brief', {'revision_id': 'rev-verify'}, 'urgent-verify')
+    assert [pipeline.claim_job()['kind'] for _ in range(4)] == [
+        'verify-brief', 'analyze-brief', 'fetch-index', 'fetch-index']
+
+
+def test_published_items_not_cut_off_before_trending_ranking(isolated_db):
+    stamp = pipeline.now()
+    with isolated_db.begin() as session:
+        for number in range(151):
+            release = f'r-{number}'
+            revision = f'v-{number}'
+            session.execute(text("INSERT INTO technology_releases (id,technology,version,source_id,canonical_url,release_type,published_at,latest_hash,created_at,updated_at) "
+                                 "VALUES (:id,'Python',:version,'python-blog',:url,'update',:published,'hash',:stamp,:stamp)"),
+                            {'id': release, 'version': f'rss-{number}', 'url': f'https://blog.python.org/{number}',
+                             'published': f'2026-11-{12 if number else 11:02d}', 'stamp': stamp})
+            session.execute(text("INSERT INTO release_revisions (id,release_id,content_hash,raw_text,created_at) "
+                                 "VALUES (:id,:release,'hash','source',:stamp)"),
+                            {'id': revision, 'release': release, 'stamp': stamp})
+            session.execute(text("INSERT INTO tech_briefs (id,release_id,revision_id,title,summary,why_it_matters,next_action,score,status,fictional,source_label,source_url,created_at,updated_at) "
+                                 "VALUES (:id,:release,:revision,:title,'Summary','Why','Check source',:score,'published',0,'Python',:url,:stamp,:stamp)"),
+                            {'id': f'b-{number}', 'release': release, 'revision': revision,
+                             'title': 'Python security release' if number == 0 else f'Python community update {number}',
+                             'score': 95 if number == 0 else 30, 'url': f'https://blog.python.org/{number}', 'stamp': stamp})
+    assert len(pipeline.published_items()) == 151
+    assert any(item['id'] == 'b-0' for item in pipeline.published_items())
+
+
 def test_recorded_python_release_reaches_personalized_feed(isolated_db):
     pipeline.seed_source('python-fixture', 'fixture_python', True)
     assert pipeline.schedule_due() == 1

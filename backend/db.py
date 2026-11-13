@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from pathlib import Path
 from sqlalchemy.orm import sessionmaker
 
@@ -15,6 +15,9 @@ def migrate():
                 continue
             for statement in path.read_text().split(';'):
                 if statement.strip():
+                    if (path.name == '008_job_priority.sql' and statement.lstrip().startswith('ALTER TABLE')
+                            and 'priority' in {column['name'] for column in inspect(c).get_columns('processing_jobs')}):
+                        continue
                     c.execute(text(statement))
             from datetime import datetime, timezone
             c.execute(text('INSERT INTO schema_migrations (name,applied_at) VALUES (:name,:stamp)'),

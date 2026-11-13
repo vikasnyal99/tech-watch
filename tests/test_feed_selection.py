@@ -47,3 +47,12 @@ def test_trending_drops_stale_news_but_keeps_active_incidents():
     active_incident['published_at'] = '2026-09-01'
     active_incident['intelligence'] = {'rule_version': 'official-status-v1', 'severity': 'high'}
     assert trending_feed([old_news, active_incident], today=TODAY) == [active_incident]
+
+
+def test_trending_keeps_critical_stories_above_diversity_penalties():
+    critical = [item('Cloudflare', 'Reliability & observability', f'Cloudflare CVE-2026-{i:04d}', 'security', 75)
+                for i in range(4)]
+    high = item('GitHub', 'CI/CD & Developer tools', 'GitHub blocked by default', 'deprecation', 99)
+    selected = trending_feed(critical + [high], today=TODAY)
+    assert selected[:4] == critical
+    assert selected[4] == high

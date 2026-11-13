@@ -117,4 +117,9 @@ def trending_feed(items: list[dict], signals: list[str] | None = None, today: da
         bonus += 5 if 'Major releases' in signals and tier in (65, 70) else 0
         return tier + (item.get('score') or 0) // 5 + freshness(item, today) + bonus
 
-    return diverse_order(candidates, value)[:20]
+    # Diversity is useful within a severity tier, but must never bury a critical
+    # advisory or confirmed major incident beneath a less consequential story.
+    ordered = []
+    for tier in (100, 85, 70, 65):
+        ordered.extend(diverse_order([item for item in candidates if importance(item) == tier], value))
+    return ordered[:20]

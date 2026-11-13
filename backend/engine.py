@@ -13,6 +13,7 @@ from backend.briefing_copy import validate_briefing_copy
 from backend.intelligence import analyze, verify, configured as intelligence_configured, eligible as intelligence_eligible, AnalysisError
 from backend.ai_budget import PROMPT_VERSION, VERIFY_VERSION, BudgetUnavailable, reserve as reserve_ai, settle as settle_ai
 from backend.publication_policy import routine_auto_publishable, needs_second_check, verified_auto_publishable
+from backend.publication_policy import RISK_WORDS
 from backend.fetcher import fetch_html
 from backend.python_source import discover_releases, parse_release
 from backend.rss_source import (SOURCES, ENTRY_HOSTS, DISABLED_BY_DEFAULT, SOURCE_ADAPTERS,
@@ -141,11 +142,25 @@ def sync_service_incidents(snapshot: dict | None = None) -> int:
     return created
 
 
+def job_priority(kind: str, payload: dict) -> int:
+    """Reserve the front of the queue for consequential source and briefing work."""
+    if kind == 'verify-brief':
+        return 90
+    if kind == 'analyze-brief':
+        return 80 if payload.get('urgent') else 30
+    if kind in ('generate-rss-brief', 'fetch-article'):
+        return 70 if payload.get('urgent') or payload.get('kind') in ('security', 'deprecation') else 20
+    if kind == 'fetch-index':
+        return 60 if payload.get('source_id') in {'aws-security', 'node-security', 'github-advisories'} else 10
+    return 10
+
+
 def enqueue(db, kind: str, payload: dict, key: str):
     ident, stamp = uid(), now()
-    db.execute(text('INSERT INTO processing_jobs (id,kind,payload,status,attempts,max_attempts,available_at,idempotency_key,created_at,updated_at) '
-                    'VALUES (:id,:kind,:payload,:status,0,3,:stamp,:key,:stamp,:stamp) ON CONFLICT(idempotency_key) DO NOTHING'),
-               {'id': ident, 'kind': kind, 'payload': json.dumps(payload), 'status': 'pending', 'stamp': stamp, 'key': key})
+    db.execute(text('INSERT INTO processing_jobs (id,kind,payload,status,attempts,max_attempts,priority,available_at,idempotency_key,created_at,updated_at) '
+                    'VALUES (:id,:kind,:payload,:status,0,3,:priority,:stamp,:key,:stamp,:stamp) ON CONFLICT(idempotency_key) DO NOTHING'),
+               {'id': ident, 'kind': kind, 'payload': json.dumps(payload), 'status': 'pending',
+                'priority': job_priority(kind, payload), 'stamp': stamp, 'key': key})
     return db.execute(text('SELECT id FROM processing_jobs WHERE idempotency_key=:key'), {'key': key}).scalar_one()
 
 
@@ -175,7 +190,7 @@ def claim_job():
     with Session.begin() as db:
         db.execute(text("UPDATE processing_jobs SET status='failed',last_error='Lease expired after final attempt',updated_at=:stamp "
                         "WHERE status='processing' AND lease_until<=:stamp AND attempts>=max_attempts"), {'stamp': stamp})
-        sql = "SELECT * FROM processing_jobs WHERE ((status='pending' AND available_at<=:stamp) OR (status='processing' AND lease_until<=:stamp)) AND attempts<max_attempts ORDER BY available_at,id LIMIT 1"
+        sql = "SELECT * FROM processing_jobs WHERE ((status='pending' AND available_at<=:stamp) OR (status='processing' AND lease_until<=:stamp)) AND attempts<max_attempts ORDER BY priority DESC,available_at,id LIMIT 1"
         if engine.dialect.name == 'postgresql':
             sql += ' FOR UPDATE SKIP LOCKED'
         job = db.execute(text(sql), {'stamp': stamp}).mappings().first()
@@ -358,7 +373,8 @@ def process_rss_index(job: dict, source: dict):
             for entry in entries:
                 enqueue(db, 'fetch-article', {'source_id': source['id'], 'title': entry.title,
                                                'url': entry.url, 'published_at': entry.published_at,
-                                               'kind': entry.kind, 'score': entry.score},
+                                               'kind': entry.kind, 'score': entry.score,
+                                               'urgent': bool(RISK_WORDS.search(entry.title))},
                         f"article:{source['id']}:{entry.key}:{digest}")
         else:
             store_entries(db, source, entries, stamp)
@@ -416,7 +432,8 @@ def store_entries(db, source: dict, entries: list[Entry], stamp: str):
                     'excerpt': entry.excerpt, 'url': entry.url,
                     'confidence': 'official_advisory' if source['adapter'] == 'ghsa' else 'official_source_excerpt'})
         enqueue(db, 'generate-rss-brief', {'revision_id': revision_id, 'source_id': source['id'],
-                                            'title': entry.title, 'score': entry.score}, f'rss-brief:{revision_id}')
+                                            'title': entry.title, 'score': entry.score,
+                                            'urgent': bool(RISK_WORDS.search(entry.title))}, f'rss-brief:{revision_id}')
 
 
 def process_rss_brief(job: dict):
@@ -442,7 +459,9 @@ def process_rss_brief(job: dict):
                     'url': row['canonical_url'], 'stamp': now()})
         if intelligence_configured() and intelligence_eligible(row['release_type'], payload['title'],
                                                                 payload['source_id'], row['description'], row['published_at']):
-            enqueue(db, 'analyze-brief', {'revision_id': payload['revision_id']},
+            enqueue(db, 'analyze-brief', {'revision_id': payload['revision_id'],
+                                          'urgent': row['release_type'] in ('security', 'deprecation')
+                                          or bool(RISK_WORDS.search(payload['title'] + ' ' + row['description'][:500]))},
                     f"ai:{payload['revision_id']}:{PROMPT_VERSION}")
 
 
@@ -460,7 +479,7 @@ def schedule_ai_backfill(limit: int = 6) -> int:
                                      "AND NOT EXISTS (SELECT 1 FROM review_audit a WHERE a.brief_id=b.id) "
                                      "AND NOT EXISTS (SELECT 1 FROM ai_requests a WHERE a.revision_id=b.revision_id "
                                      "AND a.prompt_version=:version) "
-                                     "ORDER BY r.published_at DESC,b.score DESC LIMIT 100"),
+                                     "ORDER BY b.score DESC,r.published_at DESC LIMIT 100"),
                                 {'version': PROMPT_VERSION}).mappings().all()
         created = 0
         for row in candidates:
@@ -479,7 +498,9 @@ def schedule_ai_backfill(limit: int = 6) -> int:
                     if created >= limit:
                         break
                 continue
-            enqueue(db, 'analyze-brief', {'revision_id': row['revision_id']}, key)
+            enqueue(db, 'analyze-brief', {'revision_id': row['revision_id'],
+                                          'urgent': row['release_type'] in ('security', 'deprecation')
+                                          or bool(RISK_WORDS.search(row['title'] + ' ' + row['description'][:500]))}, key)
             created += 1
             if created >= limit:
                 break
@@ -631,7 +652,8 @@ def process_ai_brief(job: dict):
             or row['content_hash'] != row['latest_hash'] or was_edited or not intelligence_configured()):
         return
     reservation = reserve_ai(revision_id, urgent=row['release_type'] in ('security', 'deprecation')
-                             or row['source_id'] == 'github-advisories')
+                             or row['source_id'] == 'github-advisories'
+                             or bool(RISK_WORDS.search(row['title'] + ' ' + row['description'][:500])))
     if reservation is None:
         return
     try:
@@ -853,7 +875,7 @@ def published_items():
     with Session() as db:
         data = rows(db.execute(text("SELECT b.*,r.technology,r.version,r.release_type,r.published_at,r.source_id FROM tech_briefs b "
                                     "JOIN technology_releases r ON r.id=b.release_id WHERE b.status='published' "
-                                    'ORDER BY COALESCE(r.published_at,b.created_at) DESC,b.score DESC LIMIT 150')))
+                                    'ORDER BY COALESCE(r.published_at,b.created_at) DESC,b.score DESC')))
     return [
         {'id': x['id'], 'type': x['release_type'], 'technology': x['technology'], 'source_id': x['source_id'], 'title': x['title'],
          'summary': x['summary'], 'why_it_matters': x['why_it_matters'], 'next_action': x['next_action'],
