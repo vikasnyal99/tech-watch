@@ -2023,56 +2023,6 @@ class BriefCard extends StatelessWidget {
                                 ),
                               ),
                               Positioned(
-                                left: 7,
-                                bottom: 7,
-                                child: Semantics(
-                                  button: true,
-                                  label: 'Impact and next steps',
-                                  child: Material(
-                                    color: clay,
-                                    borderRadius: BorderRadius.circular(8),
-                                    elevation: 3,
-                                    child: InkWell(
-                                      onTap: () => showDetails(context),
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Padding(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: tiny ? 6 : 9,
-                                          vertical: tiny ? 4 : 6,
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(
-                                              Icons.info_outline,
-                                              size: 19,
-                                              color: Colors.white,
-                                            ),
-                                            const SizedBox(width: 5),
-                                            Text(
-                                              tiny
-                                                  ? 'Details'
-                                                  : 'Impact & actions',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: tiny ? 10 : 11,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            const Icon(
-                                              Icons.arrow_outward,
-                                              size: 14,
-                                              color: Colors.white,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Positioned(
                                 right: 7,
                                 bottom: 7,
                                 child: item['source_url'] == null
@@ -2096,21 +2046,21 @@ class BriefCard extends StatelessWidget {
                                         ),
                                       )
                                     : SizedBox(
-                                        height: tiny ? 28 : 32,
+                                        height: tiny ? 24 : 28,
                                         child: FilledButton.icon(
                                           onPressed: onSource,
                                           icon: const Icon(
                                             Icons.open_in_new,
-                                            size: 14,
+                                            size: 12,
                                           ),
                                           label: const Text(
                                             'Read source',
-                                            style: TextStyle(fontSize: 11),
+                                            style: TextStyle(fontSize: 10),
                                           ),
                                           style: FilledButton.styleFrom(
                                             backgroundColor: clay,
                                             padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
+                                              horizontal: 7,
                                             ),
                                             minimumSize: Size.zero,
                                             tapTargetSize: MaterialTapTargetSize
@@ -2134,18 +2084,39 @@ class BriefCard extends StatelessWidget {
                             ? 8
                             : 11,
                       ),
-                      Text(
-                        fictional
-                            ? 'FICTIONAL SAMPLE · ${(item['type'] ?? 'UPDATE').toString().toUpperCase()}'
-                            : (item['type'] ?? 'UPDATE')
-                                  .toString()
-                                  .toUpperCase(),
-                        style: const TextStyle(
-                          color: clay,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: .6,
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              fictional
+                                  ? 'FICTIONAL SAMPLE · ${(item['type'] ?? 'UPDATE').toString().toUpperCase()}'
+                                  : (item['type'] ?? 'UPDATE').toString().toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: clay,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: .6,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          OutlinedButton.icon(
+                            onPressed: () => showDetails(context),
+                            icon: const Icon(Icons.info_outline, size: 14),
+                            label: const Text('Impact & actions', style: TextStyle(fontSize: 10)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: clay,
+                              backgroundColor: const Color(0xFFFFF9F5),
+                              side: const BorderSide(color: Color(0xFFDCBAA7)),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Text(
