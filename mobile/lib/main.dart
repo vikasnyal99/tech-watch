@@ -928,11 +928,11 @@ class _HomeState extends State<Home> {
   );
   Widget controls() => Padding(
     padding: const EdgeInsets.fromLTRB(12, 8, 12, 5),
-    child: Row(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 122),
-          child: OutlinedButton.icon(
+        Row(children: [
+          Expanded(child: OutlinedButton.icon(
             onPressed: filterView,
             icon: const Icon(Icons.keyboard_arrow_down, size: 17),
             label: Text(
@@ -955,8 +955,7 @@ class _HomeState extends State<Home> {
               padding: const EdgeInsets.symmetric(horizontal: 7),
               minimumSize: const Size(0, 34),
             ),
-          ),
-        ),
+          )),
         if (section == 1
             ? stackView.isNotEmpty
             : topicFilters[section].isNotEmpty || technologyFilters[section].isNotEmpty)
@@ -972,18 +971,6 @@ class _HomeState extends State<Home> {
               refresh();
             },
           ),
-        Expanded(
-          child: Center(
-            child: !listMode && items.isNotEmpty
-                ? Text(
-                    '${focus + 1} of ${items.length} · Swipe up',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: muted),
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ),
         SegmentedButton<bool>(
           segments: const [
             ButtonSegment(value: false, icon: Icon(Icons.grid_view, size: 16)),
@@ -999,6 +986,17 @@ class _HomeState extends State<Home> {
           ),
           onSelectionChanged: (value) => setState(() => listMode = value.first),
         ),
+        ]),
+        if (!listMode && items.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              '${focus + 1} of ${items.length} · Swipe up for next',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: muted),
+            ),
+          ),
       ],
     ),
   );
