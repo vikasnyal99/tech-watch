@@ -928,10 +928,7 @@ class _HomeState extends State<Home> {
   );
   Widget controls() => Padding(
     padding: const EdgeInsets.fromLTRB(12, 8, 12, 5),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(children: [
+    child: Row(children: [
           Expanded(child: OutlinedButton.icon(
             onPressed: filterView,
             icon: const Icon(Icons.keyboard_arrow_down, size: 17),
@@ -986,19 +983,7 @@ class _HomeState extends State<Home> {
           ),
           onSelectionChanged: (value) => setState(() => listMode = value.first),
         ),
-        ]),
-        if (!listMode && items.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 3),
-            child: Text(
-              '${focus + 1} of ${items.length} · Swipe up for next',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: muted),
-            ),
-          ),
-      ],
-    ),
+    ]),
   );
   Widget feedBody() {
     if (loading && items.isEmpty) {
@@ -1040,6 +1025,8 @@ class _HomeState extends State<Home> {
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
         child: BriefCard(
           item: items[i],
+          position: i + 1,
+          total: items.length,
           saved: saved.any((s) => s['id'] == items[i]['id']),
           onSave: () => bookmark(items[i]),
           onShare: () => shareBrief(items[i]),
@@ -1707,12 +1694,15 @@ class BriefCard extends StatelessWidget {
   const BriefCard({
     super.key,
     required this.item,
+    required this.position,
+    required this.total,
     required this.saved,
     required this.onSave,
     required this.onShare,
     required this.onSource,
   });
   final Map<String, dynamic> item;
+  final int position, total;
   final bool saved;
   final VoidCallback onSave, onShare, onSource;
 
@@ -2026,6 +2016,25 @@ class BriefCard extends StatelessWidget {
                                   ),
                                 ),
                               ),
+                              if (!tiny)
+                                Positioned(
+                                  left: 7,
+                                  bottom: compact ? 41 : 46,
+                                  child: Semantics(
+                                    label: 'Briefing $position of $total. Swipe up for next.',
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: .94),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        '$position of $total  ↑',
+                                        style: const TextStyle(color: clay, fontSize: 11, fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               Positioned(
                                 right: 7,
                                 bottom: 7,
@@ -2081,6 +2090,11 @@ class BriefCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (tiny)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text('$position of $total · Swipe up', style: const TextStyle(color: clay, fontSize: 10)),
+                        ),
                       SizedBox(
                         height: tiny
                             ? 6

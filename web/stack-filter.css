@@ -29,14 +29,16 @@
 .topic-trigger .topic-chevron{flex:none;width:14px;height:14px;display:grid;place-items:center;color:inherit}
 .topic-trigger .topic-chevron .ui-icon{width:14px;height:14px;display:block}
 .clear-view-filter{flex:none;width:20px;height:25px;padding:0;border:0;border-radius:50%;background:#f3e8df;color:#a13d1e;font-size:17px;line-height:1}
-/* Give the active filter a full row beside the reading mode. The pager sits below
-   it, so long topic names cannot push the count under the Cards/List buttons. */
-.feed-page .feed-controls{display:grid;grid-template-columns:minmax(0,1fr) auto auto;grid-template-rows:39px 20px;column-gap:5px;row-gap:0;justify-content:stretch}
-.feed-page .feed-controls .topic-trigger{grid-column:1;grid-row:1;width:100%;max-width:none;padding:0 2px}
-.feed-page .feed-controls .clear-view-filter{grid-column:2;grid-row:1}
-.feed-page .feed-controls .mode{grid-column:3;grid-row:1}
-.feed-page .feed-controls .slide-indicator{grid-column:1/-1;grid-row:2;justify-self:center;width:max-content;max-width:100%}
-.feed-page .slide-step{height:20px}
+/* Keep the toolbar on one line. Briefing position lives on the image. */
+.feed-page .feed-controls{display:flex;height:44px;gap:6px;justify-content:stretch}
+.feed-page .feed-controls .topic-trigger{flex:1 1 auto;width:auto;max-width:none;padding:0 2px}
+.feed-page .feed-controls .mode{flex:none}
+.feed-page .card-stage{height:calc(100dvh - 225px)}
+.media-pager{position:absolute;z-index:2;left:7px;bottom:51px;display:flex;align-items:center;gap:1px;height:28px;padding:2px 3px;border:1px solid #ffffffd9;border-radius:8px;background:#fffdf9ed;color:#704b3a;box-shadow:0 2px 8px #35221420;backdrop-filter:blur(8px)}
+.media-pager span{padding:0 3px;font-size:10px;font-weight:750;white-space:nowrap}
+.media-pager button{width:24px;height:24px;padding:0;border:0;border-radius:5px;background:transparent;color:#a43d1d;font-size:18px;line-height:1}
+.media-pager button:hover:not(:disabled){background:#f6e9e0}
+.media-pager button:disabled{opacity:.35;cursor:default}
 .feed-controls .topic-trigger{max-width:none}
-@media(max-height:650px){.feed-page .feed-controls{grid-template-rows:32px 18px}.feed-page .slide-step{height:18px}}
-@media(max-height:540px){.feed-page .feed-controls{grid-template-rows:28px 16px}.feed-page .slide-step{height:16px}}
+@media(max-height:650px){.feed-page .feed-controls{height:36px}.feed-page .card-stage{height:calc(100dvh - 191px)}.media-pager{bottom:44px;height:24px}.media-pager button{height:20px}}
+@media(max-height:540px){.feed-page .feed-controls{height:34px}.feed-page .card-stage{height:calc(100dvh - 171px)}.media-pager{display:none}}
