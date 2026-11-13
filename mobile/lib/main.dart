@@ -943,9 +943,12 @@ class _HomeState extends State<Home> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 5),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(
-            child: Tooltip(
+          Flexible(
+            fit: FlexFit.loose,
+            child: IntrinsicWidth(
+              child: Tooltip(
               message: fullLabel,
               child: Container(
                 height: 44,
@@ -1000,6 +1003,7 @@ class _HomeState extends State<Home> {
                       ),
                   ],
                 ),
+              ),
               ),
             ),
           ),
