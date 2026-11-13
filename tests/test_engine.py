@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+import json
 import uuid
 
 import pytest
@@ -61,6 +62,13 @@ def test_urgent_jobs_preempt_older_routine_work(isolated_db):
         'verify-brief', 'analyze-brief', 'fetch-index', 'fetch-index']
 
 
+def test_fresh_source_discovery_precedes_routine_ai_backlog(isolated_db):
+    with isolated_db.begin() as session:
+        pipeline.enqueue(session, 'analyze-brief', {'revision_id': 'routine'}, 'routine-ai')
+        pipeline.enqueue(session, 'fetch-index', {'source_id': 'go-blog'}, 'go-poll')
+    assert pipeline.claim_job()['kind'] == 'fetch-index'
+
+
 def test_published_items_not_cut_off_before_trending_ranking(isolated_db):
     stamp = pipeline.now()
     with isolated_db.begin() as session:
@@ -81,6 +89,31 @@ def test_published_items_not_cut_off_before_trending_ranking(isolated_db):
                              'score': 95 if number == 0 else 30, 'url': f'https://blog.python.org/{number}', 'stamp': stamp})
     assert len(pipeline.published_items()) == 151
     assert any(item['id'] == 'b-0' for item in pipeline.published_items())
+
+
+def test_breaking_alert_requires_read_or_dismissal_not_swipe(isolated_db):
+    pipeline.seed_source('python-fixture', 'fixture_python', True)
+    pipeline.schedule_due(); drain()
+    stamp = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    with isolated_db.begin() as session:
+        session.execute(text('UPDATE technology_releases SET published_at=:stamp'), {'stamp': stamp})
+        session.execute(text("UPDATE tech_briefs SET fictional=0,intelligence_json=:analysis,source_url='https://www.python.org/downloads/'"),
+                        {'analysis': json.dumps({'rule_version': 'editorial-evidence-v1', 'severity': 'critical'})})
+    headers = {'X-Installation-ID': uuid.uuid4().hex}
+    with TestClient(main.app) as client:
+        first = client.get('/v1/alerts', headers=headers).json()
+        assert first['count'] == 1
+        event_id = first['items'][0]['id']
+        assert first['items'][0]['importance'] == 110
+        assert client.put(f'/v1/events/{event_id}/engagement', json={'state': 'seen'}, headers=headers).status_code == 200
+        second = client.get('/v1/alerts', headers=headers).json()
+        assert second['count'] == 1 and second['items'][0]['seen'] is True
+        assert client.put(f'/v1/events/{event_id}/engagement', json={'state': 'read'}, headers=headers).status_code == 200
+        assert client.get('/v1/alerts', headers=headers).json()['count'] == 0
+        assert client.put(f'/v1/events/{event_id}/engagement', json={'state': 'invalid'}, headers=headers).status_code == 422
+        assert client.put('/v1/events/missing/engagement', json={'state': 'read'}, headers=headers).status_code == 404
+        assert client.delete('/v1/me', headers=headers).status_code == 200
+        assert client.get('/v1/alerts', headers=headers).json()['count'] == 1
 
 
 def test_recorded_python_release_reaches_personalized_feed(isolated_db):
@@ -268,7 +301,7 @@ def test_anthropic_article_and_github_advisory_adapters(isolated_db, monkeypatch
     parsed = parse_github_advisories(advisory)
     assert parsed[0].technology == 'Python' and 'First patched version: 2.0.0' in parsed[0].excerpt
     assert importance({'title': parsed[0].title, 'summary': 'Unsafe deserialization',
-                       'type': parsed[0].kind, 'source_id': 'github-advisories'}) == 100
+                       'type': parsed[0].kind, 'source_id': 'github-advisories'}) == 85
     pipeline.seed_rss_sources()
     def source_body(source, url, **kw):
         if source['id'] == 'github-advisories':
@@ -392,7 +425,7 @@ def test_ai_draft_is_reviewed_and_edit_clears_model_rank(isolated_db, monkeypatc
     draft = pipeline.review_queue()[0]
     assert draft['status'] == 'review_required' and draft['intelligence']['severity'] == 'high'
     assert count(isolated_db, 'ai_requests') == 1
-    assert ai_budget.usage_snapshot()['spent_usd'] == 0.00023
+    assert ai_budget.usage_snapshot()['spent_usd'] == 0.00025
     assert not pipeline.published_items()
     pipeline.edit_brief(draft['id'], {'next_action': 'Check the official release and deployment scope before acting.'})
     assert pipeline.draft_detail(draft['id'])['intelligence'] is None
@@ -686,8 +719,8 @@ def test_ai_budget_is_idempotent_and_preserves_urgent_capacity(isolated_db, monk
     with pytest.raises(BudgetUnavailable, match='daily'):
         ai_budget.reserve(second)
     assert ai_budget.reserve(second, urgent=True)
-    assert ai_budget.settle(reservation, input_tokens=1000, output_tokens=400) == 300
-    assert ai_budget.usage_snapshot()['spent_usd'] == 0.0003
+    assert ai_budget.settle(reservation, input_tokens=1000, output_tokens=400) == 325
+    assert ai_budget.usage_snapshot()['spent_usd'] == 0.000325
     monkeypatch.setenv('ADMIN_TOKEN', 'local-test-token')
     with TestClient(main.app) as client:
         assert client.get('/admin/ai-usage').status_code == 403
@@ -718,7 +751,7 @@ def test_failed_ai_keeps_source_draft_and_records_token_usage(isolated_db, monke
         assert len(client.get('/admin/attention', headers={'X-Admin-Token': 'local-test-token'}).json()['items']) == 1
     assert not pipeline.published_items()
     assert ai_budget.usage_snapshot()['failed'] == 1
-    assert ai_budget.usage_snapshot()['spent_usd'] == 0.000195
+    assert ai_budget.usage_snapshot()['spent_usd'] == 0.000212
 
 
 def test_daily_limit_defers_ai_job_without_losing_it(isolated_db, monkeypatch):

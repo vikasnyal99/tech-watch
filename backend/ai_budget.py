@@ -9,8 +9,10 @@ from backend.db import Session, engine
 MODEL = 'gpt-6-luna'
 PROMPT_VERSION = 'techwatch-source-v5'
 VERIFY_VERSION = 'techwatch-verify-v2'
-# OpenAI Standard USD per million tokens, reviewed 2026-11-12.
-INPUT_MICROUSD_PER_TOKEN = 0.10
+# Conservative input charge also covers the documented 1.25x cache-write
+# price. Cache reads are cheaper, so this may overstate provider spend.
+# GPT-6 Luna Standard prices reviewed 2026-11-13.
+INPUT_MICROUSD_PER_TOKEN = 0.125
 OUTPUT_MICROUSD_PER_TOKEN = 0.50
 MAX_SOURCE_CHARS = 4000
 MAX_OUTPUT_TOKENS = 1000
@@ -82,7 +84,7 @@ def reserve(revision_id: str, *, urgent: bool = False,
 
 def settle(request_id: str, *, input_tokens: int | None, output_tokens: int | None,
            error: str | None = None, db=None) -> int:
-    """Unknown token usage is charged at the reservation ceiling to avoid overspending."""
+    """Charge conservatively, including unknown usage and cache writes."""
     known = isinstance(input_tokens, int) and isinstance(output_tokens, int) and input_tokens >= 0 and output_tokens >= 0
     spent = int(input_tokens * INPUT_MICROUSD_PER_TOKEN + output_tokens * OUTPUT_MICROUSD_PER_TOKEN) if known else RESERVATION_MICROUSD
     if db is None:

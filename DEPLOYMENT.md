@@ -39,10 +39,10 @@ docker compose -f compose.prod.yaml ps
 docker compose -f compose.prod.yaml exec api python -m backend.review_cli queue
 ```
 
-The worker discovers official feed items but does not publish unreviewed items.
-On a new database, the UI shows clearly marked fictional examples until an
-editor publishes real briefings. See `docs/IMPLEMENTATION_PROGRESS.md` for the
-review commands and limitations.
+The worker discovers official feed items and can automatically publish
+source-backed briefings when the configured AI and publication gates pass.
+On a new database, the UI shows clearly marked fictional examples until real
+briefings publish. See `docs/ENGINE_GUIDE.md` for the current gates and limits.
 
 ## Caddy and DNS
 

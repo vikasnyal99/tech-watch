@@ -149,10 +149,10 @@ def job_priority(kind: str, payload: dict) -> int:
     if kind == 'analyze-brief':
         return 80 if payload.get('urgent') else 30
     if kind in ('generate-rss-brief', 'fetch-article'):
-        return 70 if payload.get('urgent') or payload.get('kind') in ('security', 'deprecation') else 20
+        return 70 if payload.get('urgent') or payload.get('kind') in ('security', 'deprecation') else 40
     if kind == 'fetch-index':
-        return 60 if payload.get('source_id') in {'aws-security', 'node-security', 'github-advisories'} else 10
-    return 10
+        return 60 if payload.get('source_id') in {'aws-security', 'node-security', 'github-advisories'} else 50
+    return 40
 
 
 def enqueue(db, kind: str, payload: dict, key: str):
@@ -433,7 +433,8 @@ def store_entries(db, source: dict, entries: list[Entry], stamp: str):
                     'confidence': 'official_advisory' if source['adapter'] == 'ghsa' else 'official_source_excerpt'})
         enqueue(db, 'generate-rss-brief', {'revision_id': revision_id, 'source_id': source['id'],
                                             'title': entry.title, 'score': entry.score,
-                                            'urgent': bool(RISK_WORDS.search(entry.title))}, f'rss-brief:{revision_id}')
+                                            'urgent': bool(RISK_WORDS.search(entry.title + ' ' + entry.excerpt[:500]))},
+                f'rss-brief:{revision_id}')
 
 
 def process_rss_brief(job: dict):

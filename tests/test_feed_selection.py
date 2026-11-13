@@ -1,7 +1,7 @@
 from datetime import date
 from types import SimpleNamespace
 
-from backend.feed_selection import importance, personal_feed, trending_feed
+from backend.feed_selection import importance, personal_feed, trending_feed, breaking_attention
 
 
 TODAY = date(2026, 11, 4)
@@ -52,7 +52,22 @@ def test_trending_drops_stale_news_but_keeps_active_incidents():
 def test_trending_keeps_critical_stories_above_diversity_penalties():
     critical = [item('Cloudflare', 'Reliability & observability', f'Cloudflare CVE-2026-{i:04d}', 'security', 75)
                 for i in range(4)]
+    for story in critical:
+        story['intelligence'] = {'rule_version': 'ai-evidence-v2', 'severity': 'critical',
+                                 'confidence': 'high', 'verification': {'supported': True}}
     high = item('GitHub', 'CI/CD & Developer tools', 'GitHub blocked by default', 'deprecation', 99)
     selected = trending_feed(critical + [high], today=TODAY)
     assert selected[:4] == critical
     assert selected[4] == high
+
+
+def test_keywords_and_unverified_ai_cannot_create_breaking_tier():
+    keyword = item('Python', 'Backend & APIs', 'Python critical security release', 'security', 99)
+    ai_unverified = item('AWS', 'Cloud infrastructure', 'AWS service disruption', 'incident', 99)
+    ai_unverified['intelligence'] = {'rule_version': 'ai-evidence-v2', 'severity': 'critical', 'confidence': 'high'}
+    verified = item('Cloudflare', 'Cloud infrastructure', 'Cloudflare outage', 'incident', 90)
+    verified['intelligence'] = {'rule_version': 'ai-evidence-v2', 'severity': 'critical',
+                                'confidence': 'high', 'verification': {'supported': True}}
+    assert importance(keyword) == importance(ai_unverified) == 85
+    assert importance(verified) == 110
+    assert breaking_attention([keyword, ai_unverified, verified], TODAY) == [verified]

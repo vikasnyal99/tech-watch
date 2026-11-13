@@ -7,7 +7,7 @@ from backend.main import app
 def test_flow():
     with TestClient(app) as c:
         h={'X-Installation-ID':'test-'+uuid.uuid4().hex}
-        assert c.get('/health').json()['mode']=='official-feeds-with-review'
+        assert c.get('/health').json()['mode']=='official-feeds-with-ai-gates'
         feed=c.get('/v1/feed?section=feed',headers=h).json()['items']
         assert len(feed)==3 and all(x['fictional'] and x['source_url'] is None for x in feed)
         trending=c.get('/v1/feed?section=trending',headers=h).json()['items']

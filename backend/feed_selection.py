@@ -83,19 +83,27 @@ def personal_feed(items: list[dict], preferences, today: date | None = None) -> 
 
 
 def importance(item: dict) -> int:
+    """110 breaking, 85 high, 70/65 notable, 0 routine or unproven.
+
+    A keyword alone cannot establish a widespread incident or active exploit.
+    """
     intelligence = item.get('intelligence') or {}
     if intelligence.get('rule_version') == 'official-status-v1':
-        return {'critical': 100, 'high': 85}.get(intelligence.get('severity'), 0)
+        return {'critical': 110, 'high': 85}.get(intelligence.get('severity'), 0)
     if intelligence.get('rule_version') == 'editorial-evidence-v1':
-        return {'critical': 100, 'high': 85, 'medium': 60}.get(intelligence.get('severity'), 0)
+        return {'critical': 110, 'high': 85, 'medium': 70}.get(intelligence.get('severity'), 0)
     if intelligence.get('rule_version') in ('ai-evidence-v1', 'ai-evidence-v2') and 'severity' in intelligence:
         if intelligence.get('confidence') == 'low':
             return 0
-        return {'critical': 100, 'high': 85, 'medium': 60,
-                'low': 0, 'unknown': 0}.get(intelligence['severity'], 0)
+        if intelligence['severity'] == 'critical':
+            # Consequential AI briefs only reach publication through the
+            # source-backed second check. Preserve this guard for older data.
+            return 110 if (intelligence.get('verification') or {}).get('supported') else 85
+        return {'high': 85, 'medium': 70, 'low': 0,
+                'unknown': 0}.get(intelligence['severity'], 0)
     text = f"{item['title']} {item['summary']}"
     if item.get('source_id') == 'github-advisories' or SECURITY.search(text):
-        return 100
+        return 85
     if item['type'] == 'deprecation' or BREAKING.search(text):
         return 85
     if MAJOR_TITLE.search(item['title']) or MAJOR_BODY.search(item['summary']):
@@ -112,7 +120,7 @@ def trending_feed(items: list[dict], signals: list[str] | None = None, today: da
 
     def value(item):
         tier = importance(item)
-        bonus = (8 if 'Security' in signals and tier == 100 else 0)
+        bonus = (8 if 'Security' in signals and tier in (110, 85) and item.get('type') == 'security' else 0)
         bonus += 8 if 'Breaking changes' in signals and tier == 85 else 0
         bonus += 5 if 'Major releases' in signals and tier in (65, 70) else 0
         return tier + (item.get('score') or 0) // 5 + freshness(item, today) + bonus
@@ -120,6 +128,22 @@ def trending_feed(items: list[dict], signals: list[str] | None = None, today: da
     # Diversity is useful within a severity tier, but must never bury a critical
     # advisory or confirmed major incident beneath a less consequential story.
     ordered = []
-    for tier in (100, 85, 70, 65):
+    for tier in (110, 85, 70, 65):
         ordered.extend(diverse_order([item for item in candidates if importance(item) == tier], value))
     return ordered[:20]
+
+
+def breaking_attention(items: list[dict], today: date | None = None) -> list[dict]:
+    """Only recent, published, non-fictional top-tier stories need persistence."""
+    today = today or date.today()
+    selected = []
+    for item in items:
+        if item.get('fictional') or importance(item) != 110:
+            continue
+        try:
+            age = (today - date.fromisoformat(item['published_at'][:10])).days
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0 <= age <= 3:
+            selected.append(item)
+    return diverse_order(selected, lambda item: importance(item) + freshness(item, today))

@@ -1,0 +1,5 @@
+.header-tools .breaking-alert{display:inline-flex;align-items:center;gap:4px;min-height:32px;max-width:102px;padding:4px 7px;border:1px solid #b74720;border-radius:18px;background:#b74720;color:#fff;font-size:11px;font-weight:750;white-space:nowrap;box-shadow:0 2px 8px #a7412529}
+.header-tools .breaking-alert span{display:grid;place-items:center;width:15px;height:15px;border-radius:50%;background:#fff;color:#a83f1c;font-size:11px;font-weight:900}
+.header-tools .breaking-dismiss{width:23px;height:30px;padding:0;border:0;background:transparent;color:#785347;font-size:19px;line-height:1}
+.card-meta .pill.breaking-pill{background:#b74720;color:#fff}
+@media(max-width:375px){.header-tools .breaking-alert{font-size:10px;padding:4px 5px;max-width:77px}.header-tools .breaking-dismiss{width:18px}.top .brand-lockup{max-width:100px}.header-tools .icon-button{width:35px}}

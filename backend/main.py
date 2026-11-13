@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from backend.db import Session, migrate
 from backend.data import fixture_items, TECHNOLOGIES, TOPICS, ROLES
-from backend.feed_selection import personal_feed, trending_feed
+from backend.feed_selection import personal_feed, trending_feed, breaking_attention, importance
 from backend.ai_budget import usage_snapshot
 from backend.service_health import service_snapshot
 from backend.pipeline import ingest
@@ -52,6 +52,9 @@ class SourceConfig(BaseModel):
     enabled: bool | None = None
     interval_seconds: int | None = None
 
+class EngagementUpdate(BaseModel):
+    state: str = Field(pattern='^(seen|read|dismissed)$')
+
 def installation(value: str | None):
     if not value or len(value) > 100 or not all(c.isalnum() or c in '-_' for c in value):
         raise HTTPException(400, 'Valid X-Installation-ID required')
@@ -83,7 +86,7 @@ def privacy_policy():
 
 @app.get('/health')
 def health():
-    return {'ok': True, 'mode': 'official-feeds-with-review', 'fictional_fallback': True}
+    return {'ok': True, 'mode': 'official-feeds-with-ai-gates', 'fictional_fallback': True}
 
 @app.get('/v1/catalog')
 def catalog():
@@ -107,6 +110,7 @@ def delete_installation_data(x_installation_id: str | None = Header(None)):
     with Session.begin() as db:
         db.execute(text('DELETE FROM bookmarks WHERE installation_id=:id'), {'id': ident})
         db.execute(text('DELETE FROM preferences WHERE installation_id=:id'), {'id': ident})
+        db.execute(text('DELETE FROM story_engagement WHERE installation_id=:id'), {'id': ident})
     return {'deleted': True}
 
 @app.get('/v1/feed')
@@ -128,8 +132,39 @@ def feed(section: str = Query('feed', pattern='^(feed|stack|trending|ai)$'), top
         items = [i for i in items if i['topic'] == topic]
     start = max(cursor, 0)
     end = start + limit
-    return {'items': items[start:end], 'next_cursor': end if end < len(items) else None,
+    return {'items': [item | {'importance': importance(item)} for item in items[start:end]],
+            'next_cursor': end if end < len(items) else None,
             'snapshot': 'ranked-v2', 'fictional': all(i['fictional'] for i in items)}
+
+@app.get('/v1/alerts')
+def unread_alerts(x_installation_id: str | None = Header(None)):
+    ident = installation(x_installation_id)
+    candidates = breaking_attention([item for item in published_items() if not item['fictional']])
+    with Session() as db:
+        states = {row['event_id']: dict(row) for row in db.execute(text(
+            'SELECT event_id,seen_at,read_at,dismissed_at FROM story_engagement WHERE installation_id=:id'),
+            {'id': ident}).mappings()}
+    items = [item | {'importance': importance(item), 'seen': bool(states.get(item['id'], {}).get('seen_at'))}
+             for item in candidates if not states.get(item['id'], {}).get('read_at')
+             and not states.get(item['id'], {}).get('dismissed_at')]
+    return {'items': items[:3], 'count': len(items)}
+
+@app.put('/v1/events/{event_id}/engagement')
+def update_engagement(event_id: str, body: EngagementUpdate,
+                      x_installation_id: str | None = Header(None)):
+    ident = installation(x_installation_id)
+    if not any(item['id'] == event_id for item in published_items()):
+        raise HTTPException(404, 'Published event not found')
+    stamp = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    column = {'seen': 'seen_at', 'read': 'read_at', 'dismissed': 'dismissed_at'}[body.state]
+    with Session.begin() as db:
+        db.execute(text('INSERT INTO story_engagement (installation_id,event_id,updated_at) '
+                        'VALUES (:id,:event,:stamp) ON CONFLICT(installation_id,event_id) DO NOTHING'),
+                   {'id': ident, 'event': event_id, 'stamp': stamp})
+        db.execute(text(f'UPDATE story_engagement SET {column}=COALESCE({column},:stamp),updated_at=:stamp '
+                        'WHERE installation_id=:id AND event_id=:event'),
+                   {'id': ident, 'event': event_id, 'stamp': stamp})
+    return {'event_id': event_id, 'state': body.state}
 
 @app.get('/v1/search')
 def search(q: str = ''):
