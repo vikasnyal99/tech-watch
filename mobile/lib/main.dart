@@ -943,13 +943,9 @@ class _HomeState extends State<Home> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 5),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: IntrinsicWidth(
-              child: Tooltip(
+            child: Tooltip(
               message: fullLabel,
               child: Container(
                 height: 44,
@@ -971,12 +967,13 @@ class _HomeState extends State<Home> {
                               Expanded(
                                 child: Text(
                                   label,
-                                  maxLines: 2,
+                                  maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
                                     color: ink,
                                     fontWeight: FontWeight.w700,
-                                    fontSize: label.length > 25 ? 10 : label.length > 17 ? 10.5 : 12,
+                                    fontSize: 12,
                                     height: 1.08,
                                   ),
                                 ),
@@ -1005,39 +1002,45 @@ class _HomeState extends State<Home> {
                   ],
                 ),
               ),
-              ),
-              ),
             ),
           ),
-          if (!listMode && items.isNotEmpty) ...[
-            const SizedBox(width: 4),
-            SizedBox(
-              width: 70,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('${focus + 1} of ${items.length}',
-                      style: const TextStyle(fontSize: 11, color: ink, fontWeight: FontWeight.w700)),
-                  const Text('Swipe up', style: TextStyle(fontSize: 9, color: muted)),
-                ],
-              ),
-            ),
-          ],
           const SizedBox(width: 4),
-          SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(value: false, icon: Icon(Icons.grid_view, size: 16)),
-              ButtonSegment(value: true, icon: Icon(Icons.view_list, size: 17)),
-            ],
-            selected: {listMode},
-            showSelectedIcon: false,
-            style: ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              padding: WidgetStateProperty.all(
-                const EdgeInsets.symmetric(horizontal: 5),
+          SizedBox(
+            width: 70,
+            child: !listMode && items.isNotEmpty
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('${focus + 1} of ${items.length}',
+                          style: const TextStyle(fontSize: 11, color: ink, fontWeight: FontWeight.w700)),
+                      const Text('Swipe up', style: TextStyle(fontSize: 9, color: muted)),
+                    ],
+                  )
+                : const SizedBox.shrink(),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, icon: Icon(Icons.grid_view, size: 16)),
+                    ButtonSegment(value: true, icon: Icon(Icons.view_list, size: 17)),
+                  ],
+                  selected: {listMode},
+                  showSelectedIcon: false,
+                  style: ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                    padding: WidgetStateProperty.all(
+                      const EdgeInsets.symmetric(horizontal: 5),
+                    ),
+                  ),
+                  onSelectionChanged: (value) => setState(() => listMode = value.first),
+                ),
               ),
             ),
-            onSelectionChanged: (value) => setState(() => listMode = value.first),
           ),
         ],
       ),
