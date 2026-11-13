@@ -2020,12 +2020,12 @@ class BriefCard extends StatelessWidget {
                                         ),
                                       )
                                     : ConstrainedBox(
-                                        constraints: const BoxConstraints(maxWidth: 160),
+                                        constraints: const BoxConstraints(maxWidth: 140),
                                         child: FilledButton(
                                           onPressed: onSource,
                                           style: FilledButton.styleFrom(
                                             backgroundColor: clay,
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                             minimumSize: Size.zero,
                                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                             shape: RoundedRectangleBorder(
@@ -2039,11 +2039,11 @@ class BriefCard extends StatelessWidget {
                                                 source,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(fontSize: 9, color: Colors.white70),
+                                                style: const TextStyle(fontSize: 8, color: Colors.white70),
                                               ),
                                               const Text(
                                                 'Read source ↗',
-                                                style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700),
+                                                style: TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.w700),
                                               ),
                                             ],
                                           ),
